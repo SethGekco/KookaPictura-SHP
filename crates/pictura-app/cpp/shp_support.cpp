@@ -11,6 +11,7 @@
 #include "panels/shp_frames_panel.h"
 #include "panels/shp_palette_panel.h"
 #include "panels/shp_playback_panel.h"
+#include "shp_undo_focus.h"
 
 #include <QtCore/QFileInfo>
 #include <QtGui/QGuiApplication>
@@ -107,6 +108,7 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     split->setStretchFactor(2, 1);
     dock_->setWidget(split);
     dock_->hide();
+    undoFocus_ = new ShpUndoFocus(frames_, this);
     connect(palette_, &ShpPalettePanel::message, this, &ShpSupport::message);
     connect(frames_, &ShpFramesPanel::pageRequested, this, [this](int frame) { pageTo(frame); });
     connect(frames_, &ShpFramesPanel::windowSizeRequested, this,
@@ -165,6 +167,7 @@ void ShpSupport::setView(PictureView* view, ImageView* canvas)
     frames_->setView(view, canvas);
     playback_->setView(view);
     palette_->setView(view);
+    undoFocus_->setView(view);
     prevKey_->setEnabled(shp);
     nextKey_->setEnabled(shp);
     if (shp && !wasShp_) {
@@ -177,6 +180,7 @@ void ShpSupport::refresh()
 {
     // A document can become an SHP in place (Revert) or stop being one.
     const bool shp = view_ && shp_info(*view_).valid;
+    undoFocus_->refresh();
     prevKey_->setEnabled(shp);
     nextKey_->setEnabled(shp);
     if (!dock_->isVisible() && !(shp && !wasShp_)) {

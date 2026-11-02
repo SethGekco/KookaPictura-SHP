@@ -22,6 +22,7 @@ class PictureView;
 class ShpFramesPanel;
 class ShpPalettePanel;
 class ShpPlaybackPanel;
+class ShpUndoFocus;
 struct ShpPlan;
 
 // True for a path with the .shp suffix (any case).
@@ -40,6 +41,7 @@ public:
     ShpFramesPanel* frames() const { return frames_; }
     ShpPalettePanel* palette() const { return palette_; }
     ShpPlaybackPanel* playback() const { return playback_; }
+    ShpUndoFocus* undoFocus() const { return undoFocus_; }
 
     // The active document changed: follow it, and show the dock when an
     // SHP becomes active.
@@ -173,6 +175,7 @@ private:
     ShpFramesPanel* frames_ = nullptr;
     ShpPalettePanel* palette_ = nullptr;
     ShpPlaybackPanel* playback_ = nullptr;
+    ShpUndoFocus* undoFocus_ = nullptr;
     QAction* newShpAction_ = nullptr;
     bool savedCopy_ = false;
     QShortcut* prevKey_ = nullptr;

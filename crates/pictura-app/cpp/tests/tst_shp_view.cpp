@@ -11,6 +11,7 @@
 #include "panels/shp_playback_panel.h"
 #include "shp_palettes.h"
 #include "shp_support.h"
+#include "shp_undo_focus.h"
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/eyedropper_sample.cxxqt.h"
@@ -55,6 +56,7 @@ private slots:
     void onionStopsAtThePagedWindowEdge();
     void playbackStepsThroughTheRange();
     void playbackDecodesFramesOffAPagedSheet();
+    void undoAndRedoFocusTheFrameTheyChanged();
 };
 
 void ShpViewTest::init()
@@ -250,6 +252,53 @@ void ShpViewTest::playbackDecodesFramesOffAPagedSheet()
     const QRect c9 = support_->frames()->cellRect(9);
     QCOMPARE(f9.pixel(1, 0), QRgb(view->composite_argb(c9.x() + 1, c9.y())));
     QCOMPARE(play->frameImage(9).pixel(1, 0), f9.pixel(1, 0));
+}
+
+void ShpViewTest::undoAndRedoFocusTheFrameTheyChanged()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    frames->setSelectsCell(false);
+    const QRect c6 = frames->cellRect(6);
+    const quint32 other = view->composite_argb(frames->cellRect(2).x() + 1, 0);
+    QVERIFY(dab(view, other, c6.x() + 2, c6.y() + 2));
+    // The fingerprints follow an edit from the event loop after it.
+    QCoreApplication::processEvents();
+
+    frames->focusFrame(1);
+    QVERIFY(view->undo());
+    QCOMPARE(support_->undoFocus()->lastChanged(), QVector<int>({6}));
+    QCOMPARE(frames->current(), 6);
+    QCOMPARE(window_->canvasAt(0)->shpGrid().active, 6);
+    // Focusing never touched the selection or History: Redo is still there.
+    QVERIFY(view->can_redo());
+    frames->focusFrame(0);
+    QVERIFY(view->redo());
+    QCOMPARE(frames->current(), 6);
+    QCoreApplication::processEvents();
+
+    // A frame operation: undoing a delete focuses the frame it brings back.
+    QVERIFY(support_->frameOp(QStringLiteral("delete"), 3, 1));
+    QCoreApplication::processEvents();
+    frames->focusFrame(0);
+    QVERIFY(view->undo());
+    QCOMPARE(pictura::shp_info(*view).frames, kFrames);
+    QCOMPARE(frames->current(), 3);
+    // Deleting the last frame and undoing it focuses that frame.
+    QVERIFY(support_->frameOp(QStringLiteral("delete"), kFrames - 1, 1));
+    QCoreApplication::processEvents();
+    frames->focusFrame(0);
+    QVERIFY(view->undo());
+    QCOMPARE(frames->current(), kFrames - 1);
+    // A selection-only step changes no frame and moves nothing.
+    view->select_rect(0, 0, 2, 2, QStringLiteral("new"), 0.0);
+    QCoreApplication::processEvents();
+    frames->focusFrame(4);
+    QVERIFY(view->undo());
+    QVERIFY(support_->undoFocus()->lastChanged().isEmpty());
+    QCOMPARE(frames->current(), 4);
 }
 
 QTEST_MAIN(ShpViewTest)

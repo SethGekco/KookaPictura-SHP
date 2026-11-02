@@ -32,7 +32,8 @@ effect art directly.
   any image or sprite sheet into a new SHP document (frame size or grid,
   palette, nearest-colour mapping). Onion skin ghosts the previous and next
   frames behind the current one (view only), and a playback preview plays
-  any range of frames at a chosen speed, once or looped.
+  any range of frames at a chosen speed, once or looped. Undo and Redo bring
+  the frame they changed into view.
   Checked against 4,819 real SHPs: every valid one saves back
   byte-identical. Next: shadow tools,
   house-colour preview (see [`SHP-PLAN.md`](SHP-PLAN.md)).

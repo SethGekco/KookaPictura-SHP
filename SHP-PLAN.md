@@ -636,3 +636,16 @@ Phase 2, authoring (recorded as each piece landed):
   the file (the thumbnail decoder at full size) into a `QCache` capped at
   16 MiB, keyed by frame and its stamp and dropped when the document or
   palette changes.
+- **Undo, Redo and History jumps focus the frame they changed**
+  (`ShpUndoFocus`). Kooka's history reports a restore's region only to
+  tile granularity, which on a small sprite covers many cells, so the shell
+  keeps a fingerprint of every cell (rehashed for the damaged cells after
+  each edit, the whole sheet after a change with no bounded region) and
+  focuses the first cell whose fingerprint the restore changed; the current
+  frame wins when it is among them. Cells compare by position, so undoing
+  a frame operation focuses the first position whose frame differs (the
+  frame a delete brings back, say). The focus is view-only: setting the
+  marquee would itself be a history step and drop the redo stack. A sheet
+  over 64 MiB is never rescanned whole, so there a restore with no bounded
+  region (a frame operation, Change Palette) focuses nothing. A paged
+  window starts its fingerprints afresh on every page change.
