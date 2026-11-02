@@ -21,6 +21,8 @@
 #include "pictura_app/src/cxxqt_object/eyedropper_sample.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
 
+#include <QtCore/QDir>
+#include <QtCore/QFileInfo>
 #include <QtCore/QJsonObject>
 #include <QtCore/QTemporaryDir>
 #include <QtGui/QAction>
@@ -68,6 +70,8 @@ private slots:
     void sheetCommandsAreDisabledForAnShpOnly();
     void frameSizeResizesEveryFrameAsOneStep();
     void hoverReadsOutTheIndexUnderTheCursor();
+    void realSpritesThroughDuplicateMoveDelete();
+    void newShpForOtherReaders();
 };
 
 void ShpViewTest::init()
@@ -468,6 +472,74 @@ void ShpViewTest::hoverReadsOutTheIndexUnderTheCursor()
     palette->showCanvasHover(QPointF(c5.x() + 2.5, c5.y() + 2.5));
     QVERIFY2(palette->canvasHoverForTest().contains(QStringLiteral("off-palette #0BADF0")),
              qPrintable(palette->canvasHoverForTest()));
+}
+
+// End to end on real sprites, skipped unless SHP_E2E_DIR names a directory
+// of scratch copies (never the game files) with a palette `e2e.pal`. Each
+// `NAME.shp` there gets: duplicate frame 2, move the copy to the end, delete
+// frame 0, save as `NAME.ops`. The expected frames are the original's
+// 1..N-1 then frame 2; an independent decoder checks that outside this test.
+void ShpViewTest::realSpritesThroughDuplicateMoveDelete()
+{
+    const QString dir = qEnvironmentVariable("SHP_E2E_DIR");
+    if (dir.isEmpty()) {
+        QSKIP("needs SHP_E2E_DIR (scratch copies of real SHPs and e2e.pal)");
+    }
+    const QStringList names = QDir(dir).entryList({QStringLiteral("*.shp")}, QDir::Files);
+    QVERIFY(!names.isEmpty());
+    for (const QString& name : names) {
+        const QString path = QDir(dir).filePath(name);
+        const QString stem = QFileInfo(path).completeBaseName();
+        QFile::remove(QDir(dir).filePath(stem + QStringLiteral(".pal")));
+        QVERIFY(QFile::copy(QDir(dir).filePath(QStringLiteral("e2e.pal")),
+                            QDir(dir).filePath(stem + QStringLiteral(".pal"))));
+        QVERIFY(window_->openDocumentAtPath(path));
+        window_->refresh();
+        pictura::PictureView* view = window_->activeView();
+        QVERIFY(view);
+        const pictura::ShpInfo info = pictura::shp_info(*view);
+        QVERIFY2(info.valid && info.frames == info.total, qPrintable(name));
+        const int n = info.total;
+        QVERIFY(support_->frameOp(QStringLiteral("duplicate"), 2, 1));
+        QVERIFY(support_->frameOp(QStringLiteral("move"), 3, 1, n));
+        QVERIFY(support_->frameOp(QStringLiteral("delete"), 0, 1));
+        QCOMPARE(pictura::shp_info(*view).total, n);
+        const QString out = QDir(dir).filePath(stem + QStringLiteral(".ops"));
+        QFile::remove(out);
+        // Not .shp-suffixed on disk until saved: save_as writes the SHP.
+        const QString saved = out + QStringLiteral(".shp");
+        QFile::remove(saved);
+        QVERIFY2(window_->saveActiveAs(saved), qPrintable(support_->lastGateMessage()));
+        QVERIFY(window_->closeDocument(window_->activeDocumentIndex(), true));
+    }
+}
+
+// File > New SHP for other readers, skipped unless SHP_NEW_OUT names the
+// file to write (and SHP_NEW_PAL a palette): 3 frames of 9 x 7, frame k
+// painted with index 40 + k on a diagonal and index 16 + k in a corner,
+// saved; pictura-shp and Ochre's reader are compared on it outside.
+void ShpViewTest::newShpForOtherReaders()
+{
+    const QString out = qEnvironmentVariable("SHP_NEW_OUT");
+    if (out.isEmpty()) {
+        QSKIP("needs SHP_NEW_OUT (and SHP_NEW_PAL)");
+    }
+    QVERIFY(support_->newShp(9, 7, 3, qEnvironmentVariable("SHP_NEW_PAL")));
+    pictura::PictureView* view = window_->activeView();
+    QVERIFY(view);
+    window_->refresh();
+    QTRY_COMPARE(support_->frames()->frameCount(), 3);
+    const rust::Vec<uint32_t> unique = pictura::shp_palette_unique(*view);
+    QCOMPARE(int(unique.size()), 256);
+    for (int k = 0; k < 3; ++k) {
+        const QPoint o = support_->frames()->cellRect(k).topLeft();
+        for (int d = 0; d < 5; ++d) {
+            QVERIFY(dab(view, 0xFF000000u | unique[40 + k], o.x() + d + k, o.y() + d));
+        }
+        QVERIFY(dab(view, 0xFF000000u | unique[16 + k], o.x() + 8, o.y() + 6));
+    }
+    QFile::remove(out);
+    QVERIFY2(window_->saveActiveAs(out), qPrintable(support_->lastGateMessage()));
 }
 
 QTEST_MAIN(ShpViewTest)

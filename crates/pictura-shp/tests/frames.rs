@@ -302,3 +302,31 @@ fn reframe_places_each_frame_by_the_anchor() {
     let scan = from_sheet(&small, &reframe(&old, &rgba, &small, (0, 0)), &inv);
     assert_eq!(scan.planes[0], vec![1, 2, 5, 6]);
 }
+
+/// Dump a file's frames as pictura-shp decodes them, for a cross-check with
+/// other readers: `SHP_DUMP_IN` -> `SHP_DUMP_OUT`, one line `W H N`, then one
+/// line of canvas indices (hex) per frame.
+#[test]
+#[ignore = "needs SHP_DUMP_IN and SHP_DUMP_OUT"]
+fn dump_canvases_for_a_cross_check() {
+    let input = std::env::var("SHP_DUMP_IN").expect("SHP_DUMP_IN");
+    let output = std::env::var("SHP_DUMP_OUT").expect("SHP_DUMP_OUT");
+    let data = std::fs::read(input).expect("reads");
+    let sprite = parse(&data).expect("parses");
+    let mut text = format!(
+        "{} {} {}\n",
+        sprite.width,
+        sprite.height,
+        sprite.frames.len()
+    );
+    for i in 0..sprite.frames.len() {
+        let hex: String = sprite
+            .canvas(i)
+            .iter()
+            .map(|v| format!("{v:02x}"))
+            .collect();
+        text.push_str(&hex);
+        text.push('\n');
+    }
+    std::fs::write(output, text).expect("writes");
+}
