@@ -5,18 +5,19 @@
 use super::*;
 use crate::cxxqt_object::helpers_composite::{buffer_to_rgba_bytes, current_buffer};
 use crate::cxxqt_object::open_jobs::apply_opened;
+use crate::history::History;
 use pictura_paint::spacing::SpacingMode;
 use pictura_paint::{PaintMode, Rgba, StrokeConfig, StrokeSample};
 use pictura_shp::palette::write_vga;
 use pictura_shp::{parse, FRAME_HEADER, HEADER};
 
-const W: usize = 12;
-const H: usize = 10;
-const FRAMES: usize = 10;
+pub(super) const W: usize = 12;
+pub(super) const H: usize = 10;
+pub(super) const FRAMES: usize = 10;
 
 /// Frame `k`: a filled rectangle of index `40 + k` with a dot of `k + 1`,
 /// in a different place per frame, so frames differ and some are raw.
-fn planes() -> Vec<Vec<u8>> {
+pub(super) fn planes() -> Vec<Vec<u8>> {
     (0..FRAMES)
         .map(|k| {
             let mut p = vec![0u8; W * H];
@@ -33,7 +34,7 @@ fn planes() -> Vec<Vec<u8>> {
 
 /// An SHP with what real files carry: a raw frame with a size in its flag
 /// word, garbage padding, and a tail.
-fn sprite() -> Vec<u8> {
+pub(super) fn sprite() -> Vec<u8> {
     let mut bytes = pictura_shp::build(W as u16, H as u16, &planes()).expect("build");
     bytes.extend_from_slice(b"TAIL\x01\x02");
     assert!(pictura_shp::sniff(&bytes, Some(bytes.len())));
@@ -42,7 +43,7 @@ fn sprite() -> Vec<u8> {
 
 /// A palette with repeated colours (four indices per colour, as game
 /// palettes repeat), the remap ramp included.
-fn palette() -> Palette {
+pub(super) fn palette() -> Palette {
     let mut argb = [0u32; 256];
     for (i, c) in argb.iter_mut().enumerate() {
         let v = (i as u32 / 4) * 4;
@@ -67,25 +68,42 @@ fn temp_pal(name: &str, palette: &Palette) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn opened(bytes: Vec<u8>, choice: PaletteChoice) -> PictureViewRust {
-    let opened = open_sheet("/tmp/fixture.shp", bytes, choice, false, &|_, _| {}).expect("opens");
+/// Roomy limits: every fixture here opens whole.
+pub(super) fn roomy() -> Limits {
+    Limits {
+        limit: WINDOW_BUDGET,
+        available: None,
+    }
+}
+
+pub(super) fn opened(bytes: Vec<u8>, choice: PaletteChoice) -> PictureViewRust {
+    let opened = open_sheet(
+        "/tmp/fixture.shp",
+        &bytes,
+        choice,
+        false,
+        &|_, _| {},
+        &roomy(),
+        0,
+    )
+    .expect("opens");
     let mut rust = PictureViewRust::default();
     apply_opened(&mut rust, opened);
     rust
 }
 
-fn choice() -> PaletteChoice {
+pub(super) fn choice() -> PaletteChoice {
     PaletteChoice {
         palette: palette(),
         path: "/pal/unittem.pal".into(),
     }
 }
 
-fn doc(rust: &PictureViewRust) -> &Document {
+pub(super) fn doc(rust: &PictureViewRust) -> &Document {
     rust.session.doc.as_ref().expect("document")
 }
 
-fn layout(rust: &PictureViewRust) -> Layout {
+pub(super) fn layout(rust: &PictureViewRust) -> Layout {
     header(doc(rust)).expect("resource").layout
 }
 
@@ -99,7 +117,7 @@ fn argb(c: u32) -> Rgba {
 }
 
 /// One dab at `(x, y)`, committed the way `end_paint` does.
-fn dab(rust: &mut PictureViewRust, cfg: StrokeConfig, x: f32, y: f32) {
+pub(super) fn dab(rust: &mut PictureViewRust, cfg: StrokeConfig, x: f32, y: f32) {
     assert!(rust.begin_paint(cfg, "Pencil"));
     let rect = {
         let mut session = rust.session.live.take_stroke_session().expect("session");
@@ -118,7 +136,7 @@ fn dab(rust: &mut PictureViewRust, cfg: StrokeConfig, x: f32, y: f32) {
     rust.apply_edit("Pencil", Edit::regions(vec![rect], false));
 }
 
-fn pencil(colour: u32) -> StrokeConfig {
+pub(super) fn pencil(colour: u32) -> StrokeConfig {
     StrokeConfig {
         color: argb(colour),
         background: argb(0xFFFF_FFFF),
@@ -133,7 +151,7 @@ fn pencil(colour: u32) -> StrokeConfig {
     }
 }
 
-fn frame_bytes(file: &[u8], i: usize) -> (&[u8], &[u8]) {
+pub(super) fn frame_bytes(file: &[u8], i: usize) -> (&[u8], &[u8]) {
     let header = &file[HEADER + FRAME_HEADER * i..HEADER + FRAME_HEADER * (i + 1)];
     let f = pictura_shp::FrameHeader::read(file, i);
     let span = pictura_shp::frame_span(file, &f);
@@ -324,7 +342,11 @@ fn the_resource_survives_a_psd_round_trip() {
 fn the_open_palette_reaches_the_decode_and_revert_keeps_the_document_one() {
     let bytes = sprite();
     let path = temp_pal("open", &palette());
-    let opened = with_open_palette(Some(path.clone()), || {
+    let request = OpenRequest {
+        palette: Some(path.clone()),
+        allowance: 0,
+    };
+    let opened = with_open_request(Some(request), || {
         decode_shp("/tmp/x.shp", &bytes, false, &|_, _| {})
     })
     .expect("an shp")
@@ -378,8 +400,15 @@ fn corpus_through_the_sheet() {
             continue;
         }
         shps += 1;
-        let Some(mut opened) = open_sheet(&path, bytes.clone(), choice.clone(), false, &|_, _| {})
-        else {
+        let Some(mut opened) = open_sheet(
+            &path,
+            &bytes,
+            choice.clone(),
+            false,
+            &|_, _| {},
+            &Limits::current(),
+            0,
+        ) else {
             failures.push(format!("open: {path}"));
             continue;
         };
@@ -388,11 +417,14 @@ fn corpus_through_the_sheet() {
             Ok(_) => failures.push(format!("unchanged differs: {path}")),
             Err(e) => failures.push(format!("unchanged refused ({e}): {path}")),
         }
-        // One pixel in the middle drawn frame becomes another exact colour.
-        let l = header(&opened.doc).unwrap().layout;
+        // One pixel in the middle drawn frame on the sheet becomes another
+        // exact colour.
+        let opened_header = header(&opened.doc).unwrap();
+        let l = opened_header.layout;
+        let total = opened_header.total;
         let source = Source::read(bytes.clone()).unwrap();
         let drawn: Vec<usize> = (0..l.frames)
-            .filter(|&i| source.frames()[i].frame.pixels.is_some())
+            .filter(|&i| source.frames()[i].has_pixels())
             .collect();
         let Some(&k) = drawn.get(drawn.len() / 2) else {
             continue;
@@ -425,11 +457,11 @@ fn corpus_through_the_sheet() {
             continue;
         };
         let back = parse(&out).expect("the edit parses");
-        let others_kept = (0..l.frames).filter(|&i| i != k).all(|i| {
+        let others_kept = (0..total).filter(|&i| i != k).all(|i| {
             let (a, b) = (frame_bytes(&out, i), frame_bytes(&bytes, i));
             a.1 == b.1 && a.0[..20] == b.0[..20]
         });
-        if (0..l.frames).all(|i| back.canvas(i) == planes[i]) && others_kept {
+        if (0..total).all(|i| back.canvas(i) == planes[i]) && others_kept {
             edit_ok += 1;
         } else {
             failures.push(format!("edit wrong: {path}"));
@@ -446,24 +478,30 @@ fn corpus_through_the_sheet() {
     assert!(failures.is_empty());
 }
 
-/// A sprite whose sheet would be over the import budget is refused from its
-/// header, before a frame is decoded (the header alone is enough here).
+/// A 136-frame 2052x2816 sprite (28741 x 28169 as one sheet, 3.1 GiB) plans
+/// a window of one 8-frame facing set from its header alone.
 #[test]
-fn an_over_budget_sheet_is_refused_from_the_header() {
+fn a_huge_sprite_plans_a_window_from_its_header() {
     let mut bytes = Vec::new();
     for v in [0u16, 2052, 2816, 136] {
         bytes.extend_from_slice(&v.to_le_bytes());
     }
-    bytes.resize(HEADER + 136 * FRAME_HEADER, 0);
-    let layout = Layout::new(2052, 2816, 136, DEFAULT_GUTTER).expect("layout");
-    assert!(!sheet_fits_budget(&layout), "28741 x 28169 is over budget");
-    assert!(open_sheet("/tmp/big.shp", bytes, choice(), false, &|_, _| {}).is_none());
-    assert!(shp_last_error()
-        .to_string()
-        .contains("over the import budget"));
-    assert!(sheet_fits_budget(
-        &Layout::new(W, H, FRAMES, DEFAULT_GUTTER).expect("layout")
-    ));
+    let whole = Layout::new(2052, 2816, 136, sheet::DEFAULT_GUTTER).expect("layout");
+    assert!(whole.sheet_bytes() > 3 << 30);
+    let plan = open_plan(&bytes, &roomy()).expect("plans");
+    assert_eq!((plan.first, plan.count, plan.total), (0, 8, 136));
+    assert_eq!(plan.needed, 16423 * 2816 * 4);
+    assert_eq!(plan.stage, 0);
+    // Memory short: the window shrinks to what fits it, and when not even
+    // one frame does, the floor refuses.
+    let short = Limits {
+        limit: WINDOW_BUDGET,
+        available: Some(100 << 20),
+    };
+    let plan = open_plan(&bytes, &short).expect("plans");
+    assert_eq!(plan.count, 1);
+    assert!(!plan.floor_ok);
+    assert!(short.admit(plan.needed, u64::MAX).is_err());
 }
 
 /// The corpus gate through the app path: every SHP in `SHP_CORPUS_LIST`
@@ -491,21 +529,21 @@ fn shp_corpus_round_trips_through_the_app() {
             skipped += 1;
             continue;
         }
-        let field = |at: usize| usize::from(u16::from_le_bytes([bytes[at], bytes[at + 1]]));
-        let layout = Layout::new(
-            field(2),
-            field(4),
-            field(6),
-            pictura_shp::sheet::DEFAULT_GUTTER,
-        );
-        if layout.is_some_and(|layout| !sheet_fits_budget(&layout)) {
-            over += 1;
-            continue;
-        }
-        let Some(opened) = open_sheet(&path, bytes.clone(), choice(), false, &|_, _| {}) else {
+        let Some(opened) = open_sheet(
+            &path,
+            &bytes,
+            choice(),
+            false,
+            &|_, _| {},
+            &Limits::current(),
+            0,
+        ) else {
             failed.push(format!("no sheet\t{path}"));
             continue;
         };
+        if header(&opened.doc).is_some_and(|h| h.paged()) {
+            over += 1;
+        }
         match encode(&opened.doc) {
             Ok(saved) if saved == bytes => checked += 1,
             Ok(_) => failed.push(format!("bytes differ\t{path}")),
@@ -513,8 +551,8 @@ fn shp_corpus_round_trips_through_the_app() {
         }
     }
     eprintln!(
-        "shp corpus (app path): {checked} byte-identical, {skipped} not SHP, \
-         {over} over the import budget, {} failed",
+        "shp corpus (app path): {checked} byte-identical ({over} of them paged), \
+         {skipped} not SHP, {} failed",
         failed.len()
     );
     for line in &failed {

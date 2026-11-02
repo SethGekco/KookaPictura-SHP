@@ -14,6 +14,7 @@
 //! [`Source`] remembers it and [`build_preserving`] gives every untouched
 //! frame its original bytes back.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -22,10 +23,13 @@ use crate::codec::{
     Sprite, FRAME_HEADER, HEADER, MAX_FRAMES, MAX_SIDE,
 };
 
-/// One frame as the file stored it, beside its decoded pixels.
+/// One frame as the file stored it. Its pixels are decoded only when asked
+/// for ([`Source::pixels`]), so reading a file never decodes every frame.
 #[derive(Debug, Clone)]
 pub struct SourceFrame {
-    pub frame: Frame,
+    header: FrameHeader,
+    /// The file stores pixels for it (`decode_frame` gives `Some`).
+    drawn: bool,
     /// The stored data, exactly: `frame_span` bytes from the offset.
     payload: Range<usize>,
     /// The gap before the payload in file order (not always zeros).
@@ -34,7 +38,12 @@ pub struct SourceFrame {
 
 impl SourceFrame {
     pub fn header(&self) -> &FrameHeader {
-        &self.frame.header
+        &self.header
+    }
+
+    /// Whether the file stores pixels for this frame.
+    pub fn has_pixels(&self) -> bool {
+        self.drawn
     }
 }
 
@@ -49,8 +58,8 @@ pub struct Source {
 }
 
 impl Source {
-    /// Parse `bytes`, which must pass [`sniff`]. Lenient about truncated
-    /// scanlines, as the reference tools are.
+    /// Parse `bytes`, which must pass [`sniff`]. Reads the frame table and
+    /// measures each frame's stored data; decodes no pixels.
     pub fn read(bytes: Vec<u8>) -> Result<Self, Error> {
         if !sniff(&bytes, Some(bytes.len())) {
             return Err(Error::NotShp);
@@ -62,15 +71,13 @@ impl Source {
         let mut frames: Vec<SourceFrame> = (0..count)
             .map(|i| {
                 let header = FrameHeader::read(data, i);
-                let pixels = decode_frame(data, &header);
+                // Exactly when `decode_frame` gives pixels.
+                let drawn = header.has_data() && (header.offset as usize) < data.len();
                 let start = header.offset as usize;
-                let span = if pixels.is_some() {
-                    frame_span(data, &header)
-                } else {
-                    0
-                };
+                let span = if drawn { frame_span(data, &header) } else { 0 };
                 SourceFrame {
-                    frame: Frame { header, pixels },
+                    header,
+                    drawn,
                     payload: start..start + span,
                     pad: start..start,
                 }
@@ -151,12 +158,30 @@ impl Source {
         &self.bytes[self.tail.clone()]
     }
 
-    /// The decoded sprite (a copy of the frames).
+    /// Frame `i` decoded: its `w * h` cropped indices, or `None` when the
+    /// file stores no pixels for it (or there is no frame `i`).
+    pub fn pixels(&self, i: usize) -> Option<Vec<u8>> {
+        let frame = self.frames.get(i).filter(|f| f.drawn)?;
+        decode_frame(&self.bytes, &frame.header)
+    }
+
+    /// Frame `i` decoded, with its header.
+    pub fn frame(&self, i: usize) -> Option<Frame> {
+        let frame = self.frames.get(i)?;
+        Some(Frame {
+            header: frame.header,
+            pixels: self.pixels(i),
+        })
+    }
+
+    /// The decoded sprite (every frame decoded).
     pub fn sprite(&self) -> Sprite {
         Sprite {
             width: self.width,
             height: self.height,
-            frames: self.frames.iter().map(|f| f.frame.clone()).collect(),
+            frames: (0..self.frames.len())
+                .filter_map(|i| self.frame(i))
+                .collect(),
         }
     }
 
@@ -164,8 +189,8 @@ impl Source {
     pub fn canvas(&self, i: usize) -> Vec<u8> {
         let (cw, ch) = (usize::from(self.width), usize::from(self.height));
         let mut out = vec![0u8; cw * ch];
-        if let Some(frame) = self.frames.get(i) {
-            blit(&mut out, cw, ch, &frame.frame);
+        if let Some(frame) = self.frame(i) {
+            blit(&mut out, cw, ch, &frame);
         }
         out
     }
@@ -236,20 +261,25 @@ fn crop(plane: &[u8], cw: usize, r: &Rect) -> Vec<u8> {
     out
 }
 
-fn check(width: u16, height: u16, planes: &[Vec<u8>]) -> Result<(), Error> {
+fn check_dimensions(width: u16, height: u16, count: usize) -> Result<(), Error> {
     if width == 0
         || height == 0
         || width > MAX_SIDE
         || height > MAX_SIDE
-        || planes.is_empty()
-        || planes.len() > usize::from(MAX_FRAMES)
+        || count == 0
+        || count > usize::from(MAX_FRAMES)
     {
         return Err(Error::BadDimensions {
             width: usize::from(width),
             height: usize::from(height),
-            frames: planes.len(),
+            frames: count,
         });
     }
+    Ok(())
+}
+
+fn check(width: u16, height: u16, planes: &[Vec<u8>]) -> Result<(), Error> {
+    check_dimensions(width, height, planes.len())?;
     let expected = usize::from(width) * usize::from(height);
     match planes.iter().position(|p| p.len() != expected) {
         Some(frame) => Err(Error::BadPlane {
@@ -284,6 +314,17 @@ pub fn build_preserving(
     build_frames(width, height, planes, source)
 }
 
+/// One frame handed to [`build_with`].
+#[derive(Debug, Clone)]
+pub enum FramePlane<'a> {
+    /// Exactly what source frame `i` decodes to: the caller knows it is
+    /// untouched, so it is written as [`build_frames`] writes an unchanged
+    /// frame without being decoded or compared.
+    Unchanged,
+    /// The frame's full canvas (`width * height` indices).
+    Pixels(Cow<'a, [u8]>),
+}
+
 /// The per-frame writer behind [`build_preserving`], without its whole-file
 /// shortcut. The rules, from Ochre's `build_shp`:
 ///
@@ -307,41 +348,79 @@ pub fn build_frames(
     source: Option<&Source>,
 ) -> Result<Vec<u8>, Error> {
     check(width, height, planes)?;
+    build_with(width, height, planes.len(), source, |i| {
+        FramePlane::Pixels(Cow::Borrowed(&planes[i]))
+    })
+}
+
+/// [`build_frames`] with the frames supplied one at a time by `plane(i)`, so
+/// a caller holding most frames as "unchanged" never decodes or keeps them
+/// all at once. [`FramePlane::Unchanged`] needs a paired source frame `i`.
+pub fn build_with<'a>(
+    width: u16,
+    height: u16,
+    count: usize,
+    source: Option<&Source>,
+    mut plane: impl FnMut(usize) -> FramePlane<'a>,
+) -> Result<Vec<u8>, Error> {
+    check_dimensions(width, height, count)?;
     let source = source.filter(|s| s.width == width && s.height == height);
     let cw = usize::from(width);
-    let count = planes.len();
+    let expected = cw * usize::from(height);
     let base = HEADER + FRAME_HEADER * count;
     let mut headers = Vec::with_capacity(FRAME_HEADER * count);
     let mut body: Vec<u8> = Vec::new();
     // Source offset -> output offset of payloads already copied verbatim.
     let mut shared: HashMap<u32, (Range<usize>, u32)> = HashMap::new();
 
-    for (i, plane) in planes.iter().enumerate() {
+    for i in 0..count {
         let was = source.and_then(|s| s.frames.get(i).map(|f| (s, f)));
-        let content = crop_bounds(plane, cw);
         let old = was.and_then(|(_, f)| {
-            let h = &f.frame.header;
-            f.frame.pixels.as_ref().map(|_| Rect {
+            let h = &f.header;
+            f.drawn.then_some(Rect {
                 x: usize::from(h.x),
                 y: usize::from(h.y),
                 w: usize::from(h.w),
                 h: usize::from(h.h),
             })
         });
-        // Keep the stored rectangle while the content still fits inside it;
-        // honouring it unconditionally would drop edits made outside it.
-        let rect = match (old, content) {
-            (Some(old), None) => Some(old),
-            (Some(old), Some(new)) if old.contains(&new) => Some(old),
-            (_, content) => content,
+        let drawn = was.filter(|(_, f)| f.drawn);
+        let given = plane(i);
+        let rect = match &given {
+            FramePlane::Unchanged => {
+                if was.is_none() {
+                    return Err(Error::BadPlane {
+                        frame: i,
+                        len: 0,
+                        expected,
+                    });
+                }
+                old
+            }
+            FramePlane::Pixels(pixels) => {
+                if pixels.len() != expected {
+                    return Err(Error::BadPlane {
+                        frame: i,
+                        len: pixels.len(),
+                        expected,
+                    });
+                }
+                // Keep the stored rectangle while the content still fits
+                // inside it; honouring it unconditionally would drop edits
+                // made outside it.
+                match (old, crop_bounds(pixels, cw)) {
+                    (Some(old), None) => Some(old),
+                    (Some(old), Some(new)) if old.contains(&new) => Some(old),
+                    (_, content) => content,
+                }
+            }
         };
         let Some(rect) = rect else {
             // Empty and empty before: the header as it was, or all zeros.
-            let header = was.map(|(_, f)| f.frame.header).unwrap_or_default();
+            let header = was.map(|(_, f)| f.header).unwrap_or_default();
             headers.extend_from_slice(&header.to_bytes());
             continue;
         };
-        let sub = crop(plane, cw, &rect);
 
         let mut header = FrameHeader {
             x: rect.x as u16,
@@ -351,39 +430,47 @@ pub fn build_frames(
             ..FrameHeader::default()
         };
         if let Some((_, f)) = was {
-            header.radar = f.frame.header.radar;
-            header.reserved = f.frame.header.reserved;
+            header.radar = f.header.radar;
+            header.reserved = f.header.reserved;
         }
-        let drawn = was.filter(|(_, f)| f.frame.pixels.is_some());
         let mut verbatim: Option<(&Source, &SourceFrame)> = None;
-        let payload: Vec<u8> = match drawn {
-            Some((s, f)) => {
-                header.flags = f.frame.header.flags;
-                if Some(rect) == old && f.frame.pixels.as_deref() == Some(&sub[..]) {
+        let payload: Cow<[u8]> = match (&given, drawn) {
+            // An untouched drawn frame: its stored bytes, never decoded.
+            (FramePlane::Unchanged, Some((s, f))) => {
+                header.flags = f.header.flags;
+                verbatim = Some((s, f));
+                Cow::Borrowed(&s.bytes[f.payload.clone()])
+            }
+            (FramePlane::Unchanged, None) => unreachable!("an undrawn frame has no rectangle"),
+            (FramePlane::Pixels(pixels), Some((s, f))) => {
+                header.flags = f.header.flags;
+                let sub = crop(pixels, cw, &rect);
+                if Some(rect) == old && s.pixels(i).as_deref() == Some(&sub[..]) {
                     verbatim = Some((s, f));
-                    s.bytes[f.payload.clone()].to_vec()
-                } else if f.frame.header.compression() == 2 {
-                    encode_prefixed(&sub, rect.w)
-                } else if f.frame.header.flags & 2 != 0 {
-                    encode_rle(&sub, rect.w)
+                    Cow::Borrowed(&s.bytes[f.payload.clone()])
+                } else if f.header.compression() == 2 {
+                    Cow::Owned(encode_prefixed(&sub, rect.w))
+                } else if f.header.flags & 2 != 0 {
+                    Cow::Owned(encode_rle(&sub, rect.w))
                 } else {
-                    sub
+                    Cow::Owned(sub)
                 }
             }
-            None => {
+            (FramePlane::Pixels(pixels), None) => {
+                let sub = crop(pixels, cw, &rect);
                 let rle = encode_rle(&sub, rect.w);
                 if rle.len() < sub.len() {
                     header.flags = 3;
-                    rle
+                    Cow::Owned(rle)
                 } else {
                     header.flags = 0;
-                    sub
+                    Cow::Owned(sub)
                 }
             }
         };
 
         if let Some((_, f)) = verbatim {
-            let key = f.frame.header.offset;
+            let key = f.header.offset;
             if let Some((range, offset)) = shared.get(&key) {
                 if *range == f.payload {
                     header.offset = *offset;
@@ -397,7 +484,7 @@ pub fn build_frames(
         let mut pad_len = (8 - here % 8) % 8;
         let mut pad: Option<&[u8]> = None;
         if let Some((s, f)) = drawn {
-            let want = f.frame.header.offset as usize;
+            let want = f.header.offset as usize;
             if want >= here {
                 // The original gap, its bytes rather than zeros, when the
                 // data still lands on its original offset.
@@ -416,7 +503,7 @@ pub fn build_frames(
         header.offset = offset;
         if let Some((_, f)) = verbatim {
             shared
-                .entry(f.frame.header.offset)
+                .entry(f.header.offset)
                 .or_insert((f.payload.clone(), offset));
         }
         body.extend_from_slice(&payload);

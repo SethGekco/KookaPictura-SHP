@@ -2,8 +2,11 @@
 // KookaPictura-SHP fork: the Frames panel of an SHP document.
 #pragma once
 
+#include <QtCore/QHash>
+#include <QtCore/QPair>
 #include <QtCore/QPointer>
 #include <QtCore/QRect>
+#include <QtGui/QPixmap>
 #include <QtWidgets/QWidget>
 
 class QCheckBox;
@@ -15,11 +18,17 @@ namespace pictura {
 
 class ImageView;
 class PictureView;
+struct ShpInfo;
 
-// Thumbnails of every frame of the sheet. Clicking one (or stepping with
+// Thumbnails of every frame of the file. Clicking one (or stepping with
 // , and .) brings its cell into view and, with "Select cell" on, sets the
 // marquee to the cell so strokes cannot bleed into a neighbour. Navigation
 // is view-only; only the selection is a (normal) document change.
+//
+// A paged SHP holds a window of its frames on the sheet. The others are
+// still listed (thumbnails decoded off the sheet and cached); picking one,
+// or stepping past the window's edge, asks for its window with
+// pageRequested().
 class ShpFramesPanel : public QWidget {
     Q_OBJECT
 
@@ -36,16 +45,25 @@ public:
     void step(int delta);
     int current() const { return current_; }
     int frameCount() const;
-    // Frame `index`'s cell in sheet pixels; null past the last frame.
+    // Frame `index`'s cell in sheet pixels; null past the last frame or for
+    // a frame off the sheet.
     QRect cellRect(int index) const;
+    // Is file frame `index` on the sheet?
+    bool onSheet(int index) const;
 
     QListWidget* list() const { return list_; }
     bool selectsCell() const;
     void setSelectsCell(bool on);
     bool gridVisible() const;
 
+signals:
+    // File frame `frame` is off the sheet: its window should be shown.
+    void pageRequested(int frame);
+
 private:
     void rebuild();
+    void updateLabel(const ShpInfo& info);
+    QPixmap offSheetThumbnail(int index);
     void syncGrid();
 
     QPointer<PictureView> view_;
@@ -54,6 +72,10 @@ private:
     quint64 builtRevision_ = 0;
     quint64 builtGeneration_ = 0;
     QString builtLayout_;
+    // Thumbnails of frames off the sheet: frame -> (stamp, picture), valid
+    // for `offPalette_`.
+    QHash<int, QPair<quint64, QPixmap>> offThumbs_;
+    QString offPalette_;
     QListWidget* list_ = nullptr;
     QLabel* label_ = nullptr;
     QToolButton* prev_ = nullptr;

@@ -93,6 +93,11 @@ impl Layout {
         rows * self.height + rows.saturating_sub(1) * self.gutter
     }
 
+    /// The bytes of the RGBA sheet.
+    pub fn sheet_bytes(&self) -> u64 {
+        self.sheet_width() as u64 * self.sheet_height() as u64 * 4
+    }
+
     /// The top-left sheet pixel of frame `i`'s cell.
     pub fn cell_origin(&self, i: usize) -> (usize, usize) {
         let cols = self.cols.max(1);
@@ -113,6 +118,40 @@ impl Layout {
         let i = row * self.cols + col;
         (i < self.frames).then_some(i)
     }
+}
+
+/// How many frames of a `total`-frame sprite one sheet (a window) holds
+/// within `budget` bytes of RGBA: the most that fit, rounded down to whole
+/// 8-frame facing sets when `total` is a multiple of 8 and at least 8 fit,
+/// and never fewer than 1 (one frame may be over the budget on its own).
+pub fn window_frames(
+    width: usize,
+    height: usize,
+    total: usize,
+    gutter: usize,
+    budget: u64,
+) -> usize {
+    // The sheet size is not monotonic in the frame count (the column count
+    // jumps), so look from the top.
+    let fits =
+        |n: usize| Layout::new(width, height, n, gutter).is_some_and(|l| l.sheet_bytes() <= budget);
+    let Some(n) = (1..=total).rev().find(|&n| fits(n)) else {
+        return 1;
+    };
+    if !total.is_multiple_of(8) {
+        return n;
+    }
+    (8..=n)
+        .rev()
+        .filter(|m| m.is_multiple_of(8))
+        .find(|&m| fits(m))
+        .unwrap_or(n)
+}
+
+/// The first frame of the window of `count` frames that holds `frame`:
+/// windows are aligned to multiples of `count`.
+pub fn window_start(frame: usize, count: usize) -> usize {
+    frame / count.max(1) * count.max(1)
 }
 
 /// `U^-1`: each unique colour's index, for 1..=255. Index 0 is not in it,

@@ -4,9 +4,10 @@ mod common;
 
 use common::{assemble, header, header_bytes, place, sprite_plane, table, Rng};
 use pictura_shp::{
-    build, build_frames, build_preserving, encode_prefixed, encode_rle, parse, sniff, Error,
-    FrameHeader, Source, FRAME_HEADER, HEADER,
+    build, build_frames, build_preserving, build_with, encode_prefixed, encode_rle, frame_canvas,
+    parse, sniff, Error, FrameHeader, FramePlane, Source, FRAME_HEADER, HEADER,
 };
+use std::borrow::Cow;
 
 fn frame_header(file: &[u8], i: usize) -> FrameHeader {
     FrameHeader::read(file, i)
@@ -313,5 +314,66 @@ fn bad_input_is_refused() {
     assert!(matches!(
         build(4097, 1, &[vec![0; 4097]]),
         Err(Error::BadDimensions { .. })
+    ));
+}
+
+/// Handing `build_with` a frame as "unchanged" writes exactly what handing
+/// it the frame's decoded canvas writes, without decoding it.
+#[test]
+fn unchanged_frames_build_like_their_canvases() {
+    for seed in 0..40u64 {
+        let mut rng = Rng::new(seed);
+        let (file, planes) = if seed % 2 == 0 {
+            mixed_source()
+        } else {
+            let cw = 1 + rng.below(60) as usize;
+            let ch = 1 + rng.below(40) as usize;
+            let n = 1 + rng.below(10) as usize;
+            let planes: Vec<Vec<u8>> = (0..n)
+                .map(|_| {
+                    if rng.below(4) == 0 {
+                        return vec![0u8; cw * ch];
+                    }
+                    let w = 1 + rng.below(cw as u64) as usize;
+                    let h = 1 + rng.below(ch as u64) as usize;
+                    let x = rng.below((cw - w + 1) as u64) as usize;
+                    let y = rng.below((ch - h + 1) as u64) as usize;
+                    place(cw, ch, x, y, w, &sprite_plane(&mut rng, w, h))
+                })
+                .collect();
+            (build(cw as u16, ch as u16, &planes).unwrap(), planes)
+        };
+        let source = Source::read(file.clone()).unwrap();
+        let (w, h) = (source.width(), source.height());
+        for (i, plane) in planes.iter().enumerate() {
+            assert_eq!(&frame_canvas(&file, i), plane, "seed {seed} frame {i}");
+        }
+        // One frame edited, the rest handed over as unchanged.
+        let mut edited = planes.clone();
+        let k = rng.below(planes.len() as u64) as usize;
+        let p = rng.below(edited[k].len() as u64) as usize;
+        edited[k][p] = edited[k][p] % 254 + 1;
+        let expected = build_frames(w, h, &edited, Some(&source)).unwrap();
+        let got = build_with(w, h, planes.len(), Some(&source), |i| {
+            if i == k {
+                FramePlane::Pixels(Cow::Borrowed(&edited[i]))
+            } else {
+                FramePlane::Unchanged
+            }
+        })
+        .unwrap();
+        assert_eq!(got, expected, "seed {seed}");
+        // Nothing edited: frame by frame, every frame unchanged.
+        let all = build_with(w, h, planes.len(), Some(&source), |_| FramePlane::Unchanged);
+        assert_eq!(
+            all.unwrap(),
+            build_frames(w, h, &planes, Some(&source)).unwrap(),
+            "seed {seed}"
+        );
+    }
+    // "Unchanged" needs a source frame to stand for.
+    assert!(matches!(
+        build_with(4, 4, 1, None, |_| FramePlane::Unchanged),
+        Err(Error::BadPlane { frame: 0, .. })
     ));
 }

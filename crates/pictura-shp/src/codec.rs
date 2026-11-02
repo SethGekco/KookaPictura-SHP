@@ -372,6 +372,19 @@ impl Sprite {
     }
 }
 
+/// Frame `i` of `data` (which must pass [`sniff`]) on the full canvas,
+/// decoding that frame only. Out of range gives a blank canvas.
+pub fn frame_canvas(data: &[u8], i: usize) -> Vec<u8> {
+    let (cw, ch) = (usize::from(u16_at(data, 2)), usize::from(u16_at(data, 4)));
+    let mut out = vec![0u8; cw * ch];
+    if i < usize::from(u16_at(data, 6)) {
+        let header = FrameHeader::read(data, i);
+        let pixels = decode_frame(data, &header);
+        blit(&mut out, cw, ch, &Frame { header, pixels });
+    }
+    out
+}
+
 /// Copy `frame`'s pixels into a `cw x ch` canvas, clipped to it.
 pub(crate) fn blit(canvas: &mut [u8], cw: usize, ch: usize, frame: &Frame) {
     let Some(pixels) = frame.pixels.as_ref() else {

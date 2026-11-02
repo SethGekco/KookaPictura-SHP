@@ -645,18 +645,18 @@ pub fn open_psd_start(mut view: Pin<&mut PictureView>, path: &QString) {
 
 pub fn open_image_start(mut view: Pin<&mut PictureView>, path: &QString) {
     let path = path.to_string();
-    let (policy, options, gpu, palette) = {
+    let (policy, options, gpu, shp) = {
         let mut rust = view.as_mut().rust_mut();
         let policy = rust
             .open_policy_override
             .take()
             .unwrap_or(rust.color_policy);
-        let palette = rust.shp_open_palette.take();
-        (policy, rust.conversion_options, rust.gpu_compute, palette)
+        let shp = rust.shp_open.take();
+        (policy, rust.conversion_options, rust.gpu_compute, shp)
     };
     start(
         &mut view,
-        move |progress| match super::super::shp::with_open_palette(palette, || {
+        move |progress| match super::super::shp::with_open_request(shp, || {
             decode_image_with_options(&path, policy, options, gpu, progress)
         }) {
             Some(opened) => (Some(opened), "ok".to_string(), Vec::new()),

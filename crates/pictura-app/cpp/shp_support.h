@@ -50,6 +50,14 @@ public:
     // save is refused and the reason is in `lastGateMessage()`; so it is with
     // `dialogs` false (the control server).
     bool saveGate(PictureView* view, bool dialogs = true);
+
+    // Show the window of a paged SHP that holds file frame `frame` (`span`
+    // frames; 0 keeps the document's window size), then focus the frame.
+    // The window on screen goes through the same gate as a save first (its
+    // pixels go into the frame store as palette indices). A page change
+    // starts a new undo history; the status bar says so. False, with the
+    // reason in lastGateMessage(), when it does not happen.
+    bool pageTo(int frame, int span = 0);
     QString lastGateMessage() const { return gateMessage_; }
     // Why the last SHP write failed after the gate let it through.
     QString lastSaveError() const;
@@ -62,6 +70,11 @@ private:
     void message(const QString& text);
     bool interactive() const;
     void showOffPalette(PictureView* view);
+    // The checks before the window's pixels become indices (a save, or a
+    // page change when `paging`): off-palette pixels and gutter bleed, with
+    // the recorded fixes offered when `dialogs` and interactive.
+    bool cleanGate(PictureView* view, bool dialogs, bool paging);
+    void refreshFrame();
 
     QMainWindow* frame_ = nullptr;
     QDockWidget* dock_ = nullptr;

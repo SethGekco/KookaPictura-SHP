@@ -23,6 +23,7 @@
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
+#include <QtWidgets/QStatusBar>
 
 #include "qt_test_support.h"
 
@@ -153,6 +154,9 @@ private slots:
     void ctrlSWritesTheEditedFrame();
     void offPaletteSaveAsksFirst();
     void offPaletteSaveIsRefusedWithoutDialogs();
+    void aPagedSpriteListsEveryFrameAndPages();
+    void anEditSurvivesPagingAwayAndBack();
+    void pagingRefusesOffPalettePixelsWithoutDialogs();
 
 private:
     pictura::PictureView* open();
@@ -180,6 +184,7 @@ void ShpTest::init()
 void ShpTest::cleanup()
 {
     pictura::ShpSupport::setGateInteractive(-1);
+    pictura::shp_set_test_limits(0, 0);
     window_.reset();
     pictura::forgetFolderPalette(shp_);
 }
@@ -386,6 +391,88 @@ void ShpTest::offPaletteSaveIsRefusedWithoutDialogs()
     QVERIFY(!QFileInfo::exists(out));
     QVERIFY(support_->lastGateMessage().contains(QStringLiteral("palette")));
     QVERIFY(support_->lastGateMessage().contains(QStringLiteral("frames 0")));
+}
+
+// 10 frames of 6x5 in 600 bytes of sheet: windows of 4 (2 x 2 cells, 13 x 11
+// x 4 = 572 bytes), so frames 0-3, 4-7 and 8-9.
+constexpr quint64 kPagedLimit = 600;
+
+void ShpTest::aPagedSpriteListsEveryFrameAndPages()
+{
+    pictura::shp_set_test_limits(kPagedLimit, 0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpInfo info = pictura::shp_info(*view);
+    QCOMPARE(info.total, kFrames);
+    QCOMPARE(info.frames, 4);
+    QCOMPARE(info.first, 0);
+    QCOMPARE(view->document_width(), 2 * kW + 1);
+    QTRY_COMPARE(support_->frames()->frameCount(), kFrames);
+    QVERIFY(support_->frames()->onSheet(3));
+    QVERIFY(!support_->frames()->onSheet(9));
+
+    // Clicking a frame off the sheet loads its window and focuses it.
+    QListWidget* list = support_->frames()->list();
+    QTest::mouseClick(list->viewport(), Qt::LeftButton, {},
+                      list->visualItemRect(list->item(9)).center());
+    info = pictura::shp_info(*view);
+    QCOMPARE(info.first, 8);
+    QCOMPARE(info.frames, 2);
+    QCOMPARE(info.span, 4);
+    QCOMPARE(support_->frames()->current(), 9);
+    QCOMPARE(support_->frames()->cellRect(9), QRect(kW + 1, 0, kW, kH));
+    QCOMPARE(window_->canvasAt(0)->shpGrid().active, 1);
+    QVERIFY(window_->statusBar()->currentMessage().contains(QStringLiteral("undo history")));
+    QVERIFY(view->history_count() <= 2);
+
+    // Stepping past the window's edge pages too: 9 -> 0 wraps to the first.
+    support_->frames()->step(1);
+    QCOMPARE(support_->frames()->current(), 0);
+    QCOMPARE(pictura::shp_info(*view).first, 0);
+    support_->frames()->step(-1);
+    QCOMPARE(support_->frames()->current(), 9);
+    QCOMPARE(pictura::shp_info(*view).first, 8);
+    // Nothing was edited: an unchanged save is still the file.
+    const QString out = dir_.filePath(QStringLiteral("paged.shp"));
+    QVERIFY(window_->saveActiveAs(out));
+    QCOMPARE(readFile(out), sprite());
+}
+
+void ShpTest::anEditSurvivesPagingAwayAndBack()
+{
+    pictura::shp_set_test_limits(kPagedLimit, 0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    support_->frames()->setSelectsCell(false);
+    QVERIFY(support_->pageTo(9));
+    const rust::Vec<uint32_t> unique = pictura::shp_palette_unique(*view);
+    // Frame 9's pixel (2, 3): cell 1 of the window, at sheet (7 + 2, 3).
+    QVERIFY(dab(view, unique[22] | 0xFF000000u, 9, 3));
+    QVERIFY(support_->pageTo(0));
+    QCOMPARE(pictura::shp_info(*view).first, 0);
+    QVERIFY(pictura::document_api::isDirty(*view));
+    QVERIFY(support_->pageTo(9));
+    QCOMPARE(view->composite_argb(9, 3) & 0xFFFFFFu, unique[22] & 0xFFFFFFu);
+    QVERIFY(support_->pageTo(4));
+    // Saved from a window that does not hold it: only that byte changed.
+    QVERIFY(window_->saveActive());
+    QByteArray expected = sprite();
+    const int base = 8 + 24 * kFrames;
+    expected[base + 9 * kW * kH + 3 * kW + 2] = char(22);
+    QCOMPARE(readFile(shp_), expected);
+}
+
+void ShpTest::pagingRefusesOffPalettePixelsWithoutDialogs()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    pictura::shp_set_test_limits(kPagedLimit, 0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QVERIFY(dab(view, 0xFF010203u, 1, 1));
+    QVERIFY(!support_->pageTo(5));
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("palette")));
+    QCOMPARE(pictura::shp_info(*view).first, 0);
+    QVERIFY(view->can_undo());
 }
 
 QTEST_MAIN(ShpTest)

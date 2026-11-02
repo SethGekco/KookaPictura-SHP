@@ -78,7 +78,7 @@ fn canvas_md5(source: &Source) -> String {
 /// their header fields and data, and the result decodes to the edit.
 fn edit_check(path: &str, data: &[u8], source: &Source, planes: &[Vec<u8>], t: &mut Tally) {
     let drawn: Vec<usize> = (0..planes.len())
-        .filter(|&i| source.frames()[i].frame.pixels.is_some())
+        .filter(|&i| source.frames()[i].has_pixels())
         .collect();
     let Some(&k) = drawn.get(drawn.len() / 2) else {
         t.no_drawn_frame += 1;

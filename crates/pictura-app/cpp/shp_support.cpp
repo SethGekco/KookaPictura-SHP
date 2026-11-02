@@ -3,6 +3,7 @@
 
 #include "shp_support.h"
 
+#include "frame.h"
 #include "panels/shp_frames_panel.h"
 #include "panels/shp_palette_panel.h"
 
@@ -63,6 +64,7 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     dock_->setWidget(split);
     dock_->hide();
     connect(palette_, &ShpPalettePanel::message, this, &ShpSupport::message);
+    connect(frames_, &ShpFramesPanel::pageRequested, this, [this](int frame) { pageTo(frame); });
 
     prevKey_ = new QShortcut(QKeySequence(Qt::Key_Comma), frame);
     nextKey_ = new QShortcut(QKeySequence(Qt::Key_Period), frame);
@@ -163,18 +165,62 @@ void ShpSupport::showOffPalette(PictureView* view)
 
 bool ShpSupport::saveGate(PictureView* view, bool dialogs)
 {
+    return cleanGate(view, dialogs, false);
+}
+
+void ShpSupport::refreshFrame()
+{
+    if (auto* window = qobject_cast<PicturaMainWindow*>(frame_)) {
+        window->refresh();
+    } else {
+        refresh();
+    }
+}
+
+bool ShpSupport::pageTo(int frame, int span)
+{
     gateMessage_.clear();
+    PictureView* view = view_;
+    if (!view || !shp_info(*view).valid) {
+        gateMessage_ = tr("no SHP document");
+        return false;
+    }
+    if (!cleanGate(view, true, true)) {
+        return false;
+    }
+    if (!shp_show_frames(*view, frame, span, 0)) {
+        gateMessage_ = shp_last_error();
+        message(gateMessage_);
+        if (interactive()) {
+            QMessageBox::warning(frame_, tr("Change Frames"), gateMessage_);
+        }
+        return false;
+    }
+    refreshFrame();
+    const ShpInfo info = shp_info(*view);
+    frames_->focusFrame(frame);
+    message(tr("Frames %1-%2 of %3 loaded. Loading other frames starts a new undo history.")
+                .arg(info.first)
+                .arg(info.first + info.frames - 1)
+                .arg(info.total));
+    return true;
+}
+
+bool ShpSupport::cleanGate(PictureView* view, bool dialogs, bool paging)
+{
+    gateMessage_.clear();
+    const QString title = paging ? tr("Change Frames") : tr("Save as SHP");
     const bool asks = dialogs && interactive();
     if (!view) {
         gateMessage_ = tr("no active document");
         return false;
     }
     ShpCheck check = shp_check(*view);
-    const auto refuse = [this, asks](const QString& text) {
+    const auto refuse = [this, asks, title](const QString& text) {
         gateMessage_ = text;
         message(text);
         if (asks) {
-            QMessageBox::warning(frame_, tr("Save as SHP"), text);
+            QMessageBox::warning(frame_, title, text);
         }
         return false;
     };
@@ -186,15 +232,18 @@ bool ShpSupport::saveGate(PictureView* view, bool dialogs)
                                 check.off_palette)
                                  .arg(frameList(check.off_frames));
         if (!asks) {
-            return refuse(text + tr(" Snap them to the palette before saving."));
+            return refuse(text
+                          + (paging ? tr(" Snap them to the palette before changing frames.")
+                                    : tr(" Snap them to the palette before saving.")));
         }
-        QMessageBox box(QMessageBox::Warning, tr("Save as SHP"), text, QMessageBox::NoButton,
-                        frame_);
+        QMessageBox box(QMessageBox::Warning, title, text, QMessageBox::NoButton, frame_);
         box.setInformativeText(
             tr("Snap maps each to the nearest palette index (the house-colour ramp loses "
                "ties; anything mostly transparent becomes index 0). It is recorded in "
                "History, so what is saved is what you see."));
-        QPushButton* snap = box.addButton(tr("Snap to Palette and Save"), QMessageBox::AcceptRole);
+        QPushButton* snap = box.addButton(
+            paging ? tr("Snap to Palette and Continue") : tr("Snap to Palette and Save"),
+            QMessageBox::AcceptRole);
         snap->setObjectName(QStringLiteral("shpGateSnap"));
         QPushButton* show = box.addButton(tr("Show Me"), QMessageBox::ActionRole);
         show->setObjectName(QStringLiteral("shpGateShow"));
@@ -223,12 +272,14 @@ bool ShpSupport::saveGate(PictureView* view, bool dialogs)
             tr("%n pixel(s) lie in the gaps between frames and would be lost.", nullptr,
                check.gutter);
         if (!asks) {
-            return refuse(text + tr(" Clear the frame gutters before saving."));
+            return refuse(text
+                          + (paging ? tr(" Clear the frame gutters before changing frames.")
+                                    : tr(" Clear the frame gutters before saving.")));
         }
-        QMessageBox box(QMessageBox::Warning, tr("Save as SHP"), text, QMessageBox::NoButton,
-                        frame_);
+        QMessageBox box(QMessageBox::Warning, title, text, QMessageBox::NoButton, frame_);
         box.setInformativeText(tr("Clearing them is recorded in History."));
-        QPushButton* clear = box.addButton(tr("Clear and Save"), QMessageBox::AcceptRole);
+        QPushButton* clear = box.addButton(paging ? tr("Clear and Continue") : tr("Clear and Save"),
+                                           QMessageBox::AcceptRole);
         clear->setObjectName(QStringLiteral("shpGateClear"));
         QPushButton* cancel = box.addButton(QMessageBox::Cancel);
         cancel->setObjectName(QStringLiteral("shpGateCancel"));

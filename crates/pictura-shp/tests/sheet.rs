@@ -5,9 +5,13 @@ mod common;
 
 use common::{place, sprite_plane, Rng};
 use pictura_shp::palette::{fallback_palette, nearest, role, unique_colours, Palette, Role};
-use pictura_shp::resource::{find_block, set_block, Header, ShpResource, RESOURCE_ID};
+use pictura_shp::resource::{
+    find_block, parts, set_block, stored, stored_canvas, Header, ShpResource, StoredFrame,
+    RESOURCE_ID,
+};
 use pictura_shp::sheet::{
-    auto_columns, clear_gutter, from_sheet, inverse, rebind, snap, to_sheet, Layout, MAX_SHEET_SIDE,
+    auto_columns, clear_gutter, from_sheet, inverse, rebind, snap, to_sheet, window_frames,
+    window_start, Layout, MAX_SHEET_SIDE,
 };
 
 /// A palette that repeats colours the way game palettes do, so
@@ -159,14 +163,13 @@ fn rebind_recolours_by_index() {
 #[test]
 fn the_resource_round_trips_and_keeps_its_neighbours() {
     let resource = ShpResource {
-        header: Header {
-            layout: Layout::new(30, 20, 16, 1).unwrap(),
-            palette: repetitive_palette(),
-        },
+        header: Header::whole(Layout::new(30, 20, 16, 1).unwrap(), repetitive_palette()),
         palette_path: "/pal/unittem.pal".into(),
         original: (0..1001u32).map(|v| v as u8).collect(),
+        stored: Vec::new(),
     };
     let data = resource.encode();
+    assert_eq!(&data[4..6], &[0, 1], "a whole sheet stays version 1");
     assert_eq!(ShpResource::decode(&data), Some(resource.clone()));
     assert_eq!(Header::read(&data), Some(resource.header.clone()));
 
@@ -197,4 +200,62 @@ fn roles_follow_the_palette_kind() {
     assert_eq!(role("isotem.pal", 1), Role::Plain);
     assert_eq!(role("ISOSNO.PAL", 20), Role::Plain);
     assert_eq!(role("isotem.pal", 0), Role::Transparent);
+}
+
+#[test]
+fn a_window_and_its_stored_frames_round_trip_as_version_2() {
+    let plane: Vec<u8> = (0..30 * 20).map(|i| (i % 7) as u8).collect();
+    let resource = ShpResource {
+        header: Header {
+            layout: Layout::new(30, 20, 8, 1).unwrap(),
+            palette: repetitive_palette(),
+            first: 16,
+            total: 40,
+            span: 8,
+        },
+        palette_path: "/pal/unittem.pal".into(),
+        original: (0..999u32).map(|v| v as u8).collect(),
+        stored: vec![
+            StoredFrame::new(3, &plane, 30),
+            StoredFrame::new(39, &plane, 30),
+        ],
+    };
+    let data = resource.encode();
+    assert_eq!(&data[4..6], &[0, 2]);
+    assert_eq!(ShpResource::decode(&data), Some(resource.clone()));
+    let header = Header::read(&data).unwrap();
+    assert!(header.paged());
+    assert_eq!(header.window(), 16..24);
+    let (_, path, original) = parts(&data).unwrap();
+    assert_eq!(
+        (path.as_str(), original),
+        ("/pal/unittem.pal", &resource.original[..])
+    );
+    let stored = stored(&data).unwrap();
+    assert_eq!(stored.iter().map(|s| s.0).collect::<Vec<_>>(), vec![3, 39]);
+    assert_eq!(stored_canvas(stored[1].1, 30, 20), plane);
+
+    // A window past the file's end is not a header.
+    let mut bad = data.clone();
+    bad[18..20].copy_from_slice(&20u16.to_be_bytes());
+    assert!(Header::read(&bad).is_none());
+}
+
+#[test]
+fn a_window_holds_what_fits_the_budget_in_whole_facing_sets() {
+    // 136 frames of 2052x2816: 8 fit in 256 MiB (one facing set per row).
+    let n = window_frames(2052, 2816, 136, 1, 256 << 20);
+    assert_eq!(n, 8);
+    let l = Layout::new(2052, 2816, n, 1).unwrap();
+    assert_eq!(
+        (l.cols, l.sheet_width(), l.sheet_height()),
+        (8, 16423, 2816)
+    );
+    // The whole file when it fits; one frame when even that does not.
+    assert_eq!(window_frames(6, 5, 10, 1, 1 << 20), 10);
+    assert_eq!(window_frames(6, 5, 10, 1, 10), 1);
+    // 10 frames of 6x5 in 600 bytes: 4 (2 x 2 cells, 13 x 11 x 4 = 572).
+    assert_eq!(window_frames(6, 5, 10, 1, 600), 4);
+    assert_eq!(window_start(9, 4), 8);
+    assert_eq!(window_start(3, 4), 0);
 }

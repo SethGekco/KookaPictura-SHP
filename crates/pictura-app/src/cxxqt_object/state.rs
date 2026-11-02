@@ -89,9 +89,10 @@ pub struct PictureViewRust {
     pub(super) ask_missing_open: bool,
     pub(super) picker_choice: i32,
     pub(super) open_policy_override: Option<pictura_codec::Policy>,
-    /// The `.pal` the next raster open uses when the file is an SHP (taken
-    /// by `open_image_start`; set by `shp_set_open_palette`).
-    pub(super) shp_open_palette: Option<String>,
+    /// What the next raster open uses when the file is an SHP: its `.pal`
+    /// and size allowance (taken by `open_image_start`; set by
+    /// `shp_set_open_palette` / `shp_set_open_allowance`).
+    pub(super) shp_open: Option<super::shp::OpenRequest>,
     /// The last Embed Color Profile choice accepted for this document.
     pub(super) save_embed_profile: Option<bool>,
     /// The raster format options the next save of this document uses, set by the
@@ -228,7 +229,7 @@ impl Default for PictureViewRust {
             ask_missing_open: false,
             picker_choice: 0,
             open_policy_override: None,
-            shp_open_palette: None,
+            shp_open: None,
             save_embed_profile: None,
             save_raster_options: None,
             damage: CanvasDamage::default(),

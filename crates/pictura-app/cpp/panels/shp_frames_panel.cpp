@@ -85,6 +85,8 @@ void ShpFramesPanel::setView(PictureView* view, ImageView* canvas)
         builtRevision_ = 0;
         builtGeneration_ = 0;
         builtLayout_.clear();
+        offThumbs_.clear();
+        offPalette_.clear();
     }
     view_ = view;
     canvas_ = canvas;
@@ -102,11 +104,17 @@ QRect ShpFramesPanel::cellRect(int index) const
         return {};
     }
     const ShpInfo info = shp_info(*view_);
-    if (!info.valid || index < 0 || index >= info.frames || info.cols <= 0) {
+    const int cell = index - info.first;
+    if (!info.valid || cell < 0 || cell >= info.frames || info.cols <= 0) {
         return {};
     }
-    return QRect((index % info.cols) * (info.width + info.gutter),
-                 (index / info.cols) * (info.height + info.gutter), info.width, info.height);
+    return QRect((cell % info.cols) * (info.width + info.gutter),
+                 (cell / info.cols) * (info.height + info.gutter), info.width, info.height);
+}
+
+bool ShpFramesPanel::onSheet(int index) const
+{
+    return !cellRect(index).isNull();
 }
 
 bool ShpFramesPanel::selectsCell() const
@@ -134,12 +142,14 @@ void ShpFramesPanel::refresh()
         label_->setText(tr("Not an SHP document"));
     } else {
         const ShpInfo info = shp_info(*view_);
-        const QString layout = QStringLiteral("%1x%2x%3x%4x%5")
+        const QString layout = QStringLiteral("%1x%2x%3x%4x%5 %6/%7")
                                    .arg(info.width)
                                    .arg(info.height)
                                    .arg(info.frames)
                                    .arg(info.cols)
-                                   .arg(info.gutter);
+                                   .arg(info.gutter)
+                                   .arg(info.first)
+                                   .arg(info.total);
         const quint64 revision = view_->canvas_revision();
         const quint64 generation = view_->document_generation();
         if (layout != builtLayout_ || revision != builtRevision_ || generation != builtGeneration_) {
@@ -148,10 +158,7 @@ void ShpFramesPanel::refresh()
             builtGeneration_ = generation;
             rebuild();
         }
-        label_->setText(current_ >= 0 ? tr("Frame %1 of %2").arg(current_).arg(info.frames)
-                                      : tr("%1 frames, %2x%3").arg(info.frames)
-                                            .arg(info.width)
-                                            .arg(info.height));
+        updateLabel(info);
     }
     prev_->setEnabled(shp);
     next_->setEnabled(shp);
@@ -160,13 +167,36 @@ void ShpFramesPanel::refresh()
     syncGrid();
 }
 
+void ShpFramesPanel::updateLabel(const ShpInfo& info)
+{
+    QString text = current_ >= 0 ? tr("Frame %1 of %2").arg(current_).arg(info.total)
+                                 : tr("%1 frames, %2x%3").arg(info.total)
+                                       .arg(info.width)
+                                       .arg(info.height);
+    if (info.frames < info.total) {
+        text += tr(" (%1-%2 loaded)").arg(info.first).arg(info.first + info.frames - 1);
+    }
+    label_->setText(text);
+    label_->setToolTip(info.frames < info.total
+                           ? tr("This sprite is too big to hold all at once, so Kooka loads "
+                                "%1 frames at a time. Picking another frame loads its "
+                                "frames; that starts a new undo history.")
+                                 .arg(info.span)
+                           : QString());
+}
+
 void ShpFramesPanel::rebuild()
 {
     const ShpInfo info = shp_info(*view_);
-    const int frames = info.frames;
+    const int frames = info.total;
     const bool reuse = list_->count() == frames;
     if (!reuse) {
         list_->clear();
+    }
+    const QString palette = info.palette_path + QLatin1Char('|') + info.palette_name;
+    if (palette != offPalette_) {
+        offThumbs_.clear();
+        offPalette_ = palette;
     }
     // Integer scale for crisp pixels when the frame is small, else fit.
     const double fit = std::min(double(kThumb) / info.width, double(kThumb) / info.height);
@@ -174,23 +204,31 @@ void ShpFramesPanel::rebuild()
     const QSize thumb(std::max(1, int(info.width * scale)), std::max(1, int(info.height * scale)));
     for (int i = 0; i < frames; ++i) {
         const QRect cell = cellRect(i);
-        const QImage image =
-            view_->display_image(0, cell.x(), cell.y(), cell.width(), cell.height());
         QPixmap pixmap(kThumb, kThumb);
         pixmap.fill(Qt::transparent);
-        if (!image.isNull()) {
-            const QImage scaled = image.scaled(thumb, Qt::KeepAspectRatio, Qt::FastTransformation);
-            QPainter p(&pixmap);
-            p.drawImage(QPoint((kThumb - scaled.width()) / 2, (kThumb - scaled.height()) / 2),
-                        scaled);
+        if (!cell.isNull()) {
+            offThumbs_.remove(i);
+            const QImage image =
+                view_->display_image(0, cell.x(), cell.y(), cell.width(), cell.height());
+            if (!image.isNull()) {
+                const QImage scaled =
+                    image.scaled(thumb, Qt::KeepAspectRatio, Qt::FastTransformation);
+                QPainter p(&pixmap);
+                p.drawImage(QPoint((kThumb - scaled.width()) / 2,
+                                   (kThumb - scaled.height()) / 2),
+                            scaled);
+            }
+        } else {
+            pixmap = offSheetThumbnail(i);
         }
         if (reuse) {
             list_->item(i)->setIcon(QIcon(pixmap));
         } else {
             auto* item = new QListWidgetItem(QIcon(pixmap), QString::number(i), list_);
-            item->setToolTip(tr("Frame %1").arg(i));
             item->setTextAlignment(Qt::AlignHCenter);
         }
+        list_->item(i)->setToolTip(cell.isNull() ? tr("Frame %1 (click to load it)").arg(i)
+                                                 : tr("Frame %1").arg(i));
     }
     if (current_ >= frames) {
         current_ = -1;
@@ -198,6 +236,36 @@ void ShpFramesPanel::rebuild()
     if (current_ >= 0) {
         list_->setCurrentRow(current_);
     }
+}
+
+QPixmap ShpFramesPanel::offSheetThumbnail(int index)
+{
+    const quint64 stamp = shp_frame_stamp(*view_, index);
+    const auto cached = offThumbs_.constFind(index);
+    if (cached != offThumbs_.cend() && cached->first == stamp) {
+        return cached->second;
+    }
+    QPixmap pixmap(kThumb, kThumb);
+    pixmap.fill(Qt::transparent);
+    const ShpThumb t = shp_frame_thumbnail(*view_, index, kThumb);
+    if (t.width > 0 && t.height > 0 && t.argb.size() == size_t(t.width) * size_t(t.height)) {
+        QImage image(t.width, t.height, QImage::Format_ARGB32);
+        for (int y = 0; y < t.height; ++y) {
+            std::copy_n(t.argb.data() + size_t(y) * size_t(t.width), t.width,
+                        reinterpret_cast<uint32_t*>(image.scanLine(y)));
+        }
+        // Small frames scale up by a whole number, as on the sheet.
+        const double fit = std::min(double(kThumb) / t.width, double(kThumb) / t.height);
+        const QImage scaled =
+            fit >= 2.0 ? image.scaled(t.width * int(fit), t.height * int(fit), Qt::KeepAspectRatio,
+                                      Qt::FastTransformation)
+                       : image;
+        QPainter p(&pixmap);
+        p.setOpacity(0.75);
+        p.drawImage(QPoint((kThumb - scaled.width()) / 2, (kThumb - scaled.height()) / 2), scaled);
+    }
+    offThumbs_.insert(index, {stamp, pixmap});
+    return pixmap;
 }
 
 void ShpFramesPanel::syncGrid()
@@ -213,7 +281,7 @@ void ShpFramesPanel::syncGrid()
             grid.cols = info.cols;
             grid.frames = info.frames;
             grid.gutter = info.gutter;
-            grid.active = current_;
+            grid.active = onSheet(current_) ? current_ - info.first : -1;
             grid.visible = grid_->isChecked();
         }
     }
@@ -224,6 +292,9 @@ void ShpFramesPanel::focusFrame(int index)
 {
     const QRect cell = cellRect(index);
     if (cell.isNull()) {
+        if (view_ && index >= 0 && index < shp_info(*view_).total) {
+            emit pageRequested(index);
+        }
         return;
     }
     current_ = index;
@@ -247,7 +318,7 @@ void ShpFramesPanel::focusFrame(int index)
                            0.0);
     }
     if (view_) {
-        label_->setText(tr("Frame %1 of %2").arg(index).arg(shp_info(*view_).frames));
+        updateLabel(shp_info(*view_));
     }
     syncGrid();
 }

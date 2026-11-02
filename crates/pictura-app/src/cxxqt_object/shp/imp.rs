@@ -2,17 +2,14 @@
 //! The SHP document glue: open as a sheet, the palette queries, the
 //! recorded snap / clear / rebind edits, and the byte-preserving save.
 
-use super::ffi::{ShpCheck, ShpInfo};
+use super::ffi::{ShpCheck, ShpInfo, ShpPlan, ShpThumb};
 use super::*;
 
 use crate::cxxqt_object::edit::Edit;
 use crate::cxxqt_object::helpers::safe_io::{read_capped, write_atomically};
-use crate::cxxqt_object::helpers_composite::{
-    buffer_to_rgba_bytes, current_buffer, store_composite,
-};
+use crate::cxxqt_object::helpers_composite::{buffer_to_rgba_bytes, current_buffer};
 use crate::cxxqt_object::open_jobs::{OpenedDocument, OpenedPath};
 use crate::cxxqt_object::state::PictureViewRust;
-use crate::history::History;
 use crate::layer_target::LayerTarget;
 use core::pin::Pin;
 use cxx_qt::CxxQtType;
@@ -20,8 +17,9 @@ use cxx_qt_lib::QString;
 use pictura_core::{BitDepth, BlendMode, ColorMode, Document, Layer};
 use pictura_shp::palette::{fallback_palette, read_palette, role, unique_colours, Palette};
 use pictura_shp::resource::{self, find_block, set_block, Header, ShpResource};
-use pictura_shp::sheet::{self, Layout, DEFAULT_GUTTER};
-use pictura_shp::{build_preserving, sniff, Source};
+use pictura_shp::sheet::{self, Layout};
+use pictura_shp::{build_preserving, build_with, frame_canvas, sniff, FramePlane, Source};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::io::Read as _;
 use std::path::Path;
@@ -60,10 +58,21 @@ impl PaletteChoice {
     }
 }
 
+/// What the shell asks of the next SHP open on a view: the palette (`None`
+/// or empty for the fallback) and how many bytes of sheet the user agreed to
+/// hold past the size limit (0: none).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(in crate::cxxqt_object) struct OpenRequest {
+    pub(in crate::cxxqt_object) palette: Option<String>,
+    pub(in crate::cxxqt_object) allowance: u64,
+}
+
 thread_local! {
     /// The palette an SHP decode on this thread uses; set around one decode
-    /// by [`with_open_palette`] / [`with_document_palette`].
+    /// by [`with_open_request`] / [`with_document_palette`].
     static OPEN_PALETTE: RefCell<Option<PaletteChoice>> = const { RefCell::new(None) };
+    /// The size allowance of that decode.
+    static OPEN_ALLOWANCE: RefCell<u64> = const { RefCell::new(0) };
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
@@ -75,16 +84,19 @@ fn set_error(message: &str) {
     LAST_ERROR.with(|e| *e.borrow_mut() = message.to_string());
 }
 
-/// Run `f` (a decode) with the palette at `path` (`None` or empty: the
-/// fallback) as the one an SHP opens with.
-pub(in crate::cxxqt_object) fn with_open_palette<T>(
-    path: Option<String>,
+/// Run `f` (a decode) with the request's palette (`None` or empty: the
+/// fallback) and size allowance as the ones an SHP opens with.
+pub(in crate::cxxqt_object) fn with_open_request<T>(
+    request: Option<OpenRequest>,
     f: impl FnOnce() -> T,
 ) -> T {
-    let choice = PaletteChoice::load(path.as_deref().unwrap_or(""));
+    let request = request.unwrap_or_default();
+    let choice = PaletteChoice::load(request.palette.as_deref().unwrap_or(""));
     OPEN_PALETTE.with(|p| *p.borrow_mut() = Some(choice));
+    OPEN_ALLOWANCE.with(|a| *a.borrow_mut() = request.allowance);
     let out = f();
     OPEN_PALETTE.with(|p| *p.borrow_mut() = None);
+    OPEN_ALLOWANCE.with(|a| *a.borrow_mut() = 0);
     out
 }
 
@@ -130,88 +142,66 @@ pub(in crate::cxxqt_object) fn decode_shp(
     let choice = OPEN_PALETTE
         .with(|p| p.borrow().clone())
         .unwrap_or_else(|| PaletteChoice::load(""));
-    Some(open_sheet(path, bytes.to_vec(), choice, gpu, progress))
+    let allowance = OPEN_ALLOWANCE.with(|a| *a.borrow());
+    Some(open_sheet(
+        path,
+        bytes,
+        choice,
+        gpu,
+        progress,
+        &Limits::current(),
+        allowance,
+    ))
 }
 
-/// The import budget every other format meets ([`ImageBudget`]): one RGBA
-/// sheet must fit a single decoded allocation and the document share of
-/// memory. A 136-frame 2052x2816 sprite lays out at 28741x28169 (3.2 GB).
-///
-/// [`ImageBudget`]: pictura_codec::ImageBudget
-pub(in crate::cxxqt_object) fn sheet_fits_budget(layout: &Layout) -> bool {
-    let budget = pictura_codec::ImageBudget::default();
-    let (w, h) = (layout.sheet_width() as u64, layout.sheet_height() as u64);
-    w.max(h) <= u64::from(budget.max_dimension)
-        && w * h * 4 <= budget.max_alloc_bytes.min(budget.max_document_bytes)
-}
-
-/// The sheet document for an SHP's bytes.
+/// The sheet document for an SHP's bytes (which pass `sniff`): the window
+/// of its first frames that fits `limits` (every frame when they all fit).
+/// Only the window's frames are decoded; the rest stay in the original file
+/// the resource keeps.
 pub(in crate::cxxqt_object) fn open_sheet(
     path: &str,
-    bytes: Vec<u8>,
+    bytes: &[u8],
     choice: PaletteChoice,
     gpu: bool,
     progress: &dyn Fn(u8, &str),
+    limits: &Limits,
+    allowance: u64,
 ) -> Option<OpenedDocument> {
     progress(30, "Decoding frames");
-    // The sheet is laid out from the file header before any frame is decoded,
-    // so an over-budget sheet costs nothing.
-    let field = |at: usize| {
-        Some(usize::from(u16::from_le_bytes([
-            *bytes.get(at)?,
-            *bytes.get(at + 1)?,
-        ])))
-    };
-    let layout = Layout::new(field(2)?, field(4)?, field(6)?, DEFAULT_GUTTER)?;
-    if !sheet_fits_budget(&layout) {
+    // Planned from the file header before any frame is decoded.
+    let plan = open_plan(bytes, limits)?;
+    let (width, height, total, count) = (
+        plan.width as usize,
+        plan.height as usize,
+        plan.total as usize,
+        plan.count as usize,
+    );
+    let layout = Layout::new(width, height, count, sheet::DEFAULT_GUTTER)?;
+    if let Err(reason) = limits.admit(layout.sheet_bytes(), allowance) {
         set_error(&format!(
-            "{} frames of {}x{} make a {}x{} sheet, over the import budget.",
-            layout.frames,
-            layout.width,
-            layout.height,
-            layout.sheet_width(),
-            layout.sheet_height()
+            "{} frames of {}x{}: {reason}",
+            total, width, height
         ));
         return None;
     }
-    let source = Source::read(bytes).ok()?;
-    if (
-        usize::from(source.width()),
-        usize::from(source.height()),
-        source.frames().len(),
-    ) != (layout.width, layout.height, layout.frames)
-    {
-        return None;
-    }
-    let planes = source.canvases();
-    let unique = unique_colours(&choice.palette);
-    let rgba = sheet::to_sheet(&layout, &planes, &unique);
+    let planes: Vec<Vec<u8>> = (0..count).map(|i| frame_canvas(bytes, i)).collect();
     progress(70, "Compositing");
     let name = Path::new(path)
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let (sw, sh) = (layout.sheet_width() as u32, layout.sheet_height() as u32);
-    // No finalize_import: an all-opaque sheet must keep its alpha channel,
-    // or index 0 could never be painted. No ICC either: the sheet is sRGB.
-    let mut doc = Document::from_rgba(&name, sw, sh, &rgba);
-    let data = ShpResource {
-        header: Header {
-            layout,
-            palette: choice.palette,
-        },
-        palette_path: choice.path,
-        original: source.bytes().to_vec(),
-    }
-    .encode();
-    doc.image_resources =
-        set_block(&[], resource::RESOURCE_ID, resource::RESOURCE_NAME, &data).into();
-    let rendered = current_buffer(&doc, gpu);
-    store_composite(&mut doc, &rendered);
+    let header = Header {
+        layout,
+        palette: choice.palette,
+        first: 0,
+        total,
+        span: count,
+    };
+    let data = resource::encode_parts(&header, &choice.path, bytes, std::iter::empty());
     progress(90, "Preparing layers");
-    let target = LayerTarget::for_opened(&doc, Some("0".to_string()));
-    let mut history = History::default();
-    history.capture_live(&mut doc, &None, &target, "Open");
+    let label = window_label(&header);
+    let (doc, history, target) =
+        window_document(&name, &layout, &planes, &header.palette, &data, gpu, &label);
     Some(OpenedDocument {
         doc,
         history,
@@ -259,10 +249,13 @@ fn sheet_pixels(doc: &Document) -> Result<(Header, Vec<u8>), String> {
 
 /// Encode the document as SHP bytes: the original file verbatim when no
 /// frame changed, else frame by frame keeping every untouched frame's bytes.
+/// A paged document adds the frame store's edited frames and hands every
+/// other frame off the sheet over as unchanged, never decoding them.
 pub(in crate::cxxqt_object) fn encode(doc: &Document) -> Result<Vec<u8>, String> {
     let (header, rgba) = sheet_pixels(doc)?;
     let unique = unique_colours(&header.palette);
     let scan = sheet::from_sheet(&header.layout, &rgba, &sheet::inverse(&unique));
+    drop(rgba);
     if scan.off_palette_total() > 0 {
         return fail(format!(
             "{} pixels are not palette colours; snap them to the palette first.",
@@ -275,21 +268,38 @@ pub(in crate::cxxqt_object) fn encode(doc: &Document) -> Result<Vec<u8>, String>
             scan.gutter
         ));
     }
-    let (_, _, original) = block(doc)
-        .and_then(resource::parts)
-        .ok_or("missing SHP data")?;
+    let block = block(doc).ok_or("missing SHP data")?;
+    let (_, _, original) = resource::parts(block).ok_or("missing SHP data")?;
+    let stored = resource::stored(block).ok_or("damaged SHP data")?;
     let source = if original.is_empty() {
         None
     } else {
         Source::read(original.to_vec()).ok()
     };
     let l = &header.layout;
-    build_preserving(
-        l.width as u16,
-        l.height as u16,
-        &scan.planes,
-        source.as_ref(),
-    )
+    let (w, h) = (l.width as u16, l.height as u16);
+    if !header.paged() && stored.is_empty() {
+        return build_preserving(w, h, &scan.planes, source.as_ref())
+            .map_err(|e| format!("cannot write the SHP: {e:?}"));
+    }
+    let source = source.ok_or("This paged SHP sheet has lost its source file.")?;
+    let window = header.window();
+    let unchanged = stored.is_empty()
+        && window
+            .clone()
+            .all(|f| scan.planes[f - header.first] == frame_canvas(original, f));
+    if unchanged {
+        return Ok(original.to_vec());
+    }
+    build_with(w, h, header.total, Some(&source), |f| {
+        if window.contains(&f) {
+            FramePlane::Pixels(Cow::Borrowed(&scan.planes[f - header.first]))
+        } else if let Some((_, data)) = stored.iter().find(|(s, _)| *s == f) {
+            FramePlane::Pixels(Cow::Owned(resource::stored_canvas(data, l.width, l.height)))
+        } else {
+            FramePlane::Unchanged
+        }
+    })
     .map_err(|e| format!("cannot write the SHP: {e:?}"))
 }
 
@@ -317,8 +327,9 @@ pub(in crate::cxxqt_object) fn save_shp(mut view: Pin<&mut PictureView>, path: &
     true
 }
 
-/// The single full-canvas, plain pixel layer the recorded SHP edits work on.
-fn sheet_layer(doc: &mut Document) -> Result<&mut Layer, String> {
+/// The document's only layer is a full-canvas, plain pixel layer: what the
+/// recorded SHP edits and paging work on.
+pub(in crate::cxxqt_object) fn plain_sheet_layer(doc: &Document) -> Result<(), String> {
     let (w, h) = (doc.width as i32, doc.height as i32);
     let plane = doc.width as usize * doc.height as usize;
     if doc.layers.len() != 1 {
@@ -326,7 +337,7 @@ fn sheet_layer(doc: &mut Document) -> Result<&mut Layer, String> {
             "Flatten the image first (Layer > Flatten Image): this works on a single layer.",
         );
     }
-    let layer = &mut doc.layers[0];
+    let layer = &doc.layers[0];
     let plain = !layer.is_group
         && layer.adjustment.is_none()
         && layer.mask.is_none()
@@ -351,7 +362,13 @@ fn sheet_layer(doc: &mut Document) -> Result<&mut Layer, String> {
              (Normal, 100% opacity, no mask).",
         );
     }
-    Ok(layer)
+    Ok(())
+}
+
+/// The single full-canvas, plain pixel layer the recorded SHP edits work on.
+fn sheet_layer(doc: &mut Document) -> Result<&mut Layer, String> {
+    plain_sheet_layer(doc)?;
+    Ok(&mut doc.layers[0])
 }
 
 fn layer_rgba(layer: &Layer, plane: usize) -> Vec<u8> {
@@ -427,6 +444,15 @@ pub(in crate::cxxqt_object) fn rebind_rust(
         .and_then(resource::parts)
         .map(|(h, p, o)| (h, p, o.to_vec()))
         .ok_or("This document is not an SHP sheet.")?;
+    let stored = block(doc)
+        .and_then(resource::stored)
+        .ok_or("damaged SHP data")?
+        .into_iter()
+        .map(|(frame, data)| resource::StoredFrame {
+            frame,
+            data: data.to_vec(),
+        })
+        .collect();
     if header.palette == choice.palette && path == choice.path {
         return Ok(false);
     }
@@ -443,6 +469,7 @@ pub(in crate::cxxqt_object) fn rebind_rust(
         header,
         palette_path: choice.path,
         original,
+        stored,
     }
     .encode();
     doc.image_resources = set_block(
@@ -501,7 +528,11 @@ pub(super) fn shp_sniff_file(path: &QString) -> bool {
 }
 
 pub(super) fn shp_set_open_palette(mut view: Pin<&mut PictureView>, path: &QString) {
-    view.as_mut().rust_mut().shp_open_palette = Some(path.to_string());
+    view.as_mut()
+        .rust_mut()
+        .shp_open
+        .get_or_insert_with(OpenRequest::default)
+        .palette = Some(path.to_string());
 }
 
 pub(super) fn shp_info(view: &PictureView) -> ShpInfo {
@@ -523,6 +554,9 @@ pub(super) fn shp_info(view: &PictureView) -> ShpInfo {
             palette_name: QString::from(header.palette.name.as_str()),
             palette_path: QString::from(path.as_str()),
             has_source: !original.is_empty(),
+            first: header.first as i32,
+            total: header.total as i32,
+            span: header.span as i32,
         },
         None => ShpInfo {
             valid: false,
@@ -534,6 +568,9 @@ pub(super) fn shp_info(view: &PictureView) -> ShpInfo {
             palette_name: QString::default(),
             palette_path: QString::default(),
             has_source: false,
+            first: 0,
+            total: 0,
+            span: 0,
         },
     }
 }
@@ -582,10 +619,14 @@ pub(in crate::cxxqt_object) fn check(doc: &Document) -> ShpCheck {
     };
     let unique = unique_colours(&header.palette);
     let scan = sheet::from_sheet(&header.layout, &rgba, &sheet::inverse(&unique));
-    let off_frames: Vec<i32> = scan.off_frames().into_iter().map(|i| i as i32).collect();
-    let first_off = off_frames
-        .first()
-        .and_then(|&i| scan.off_bounds[i as usize])
+    let first_frame = scan.off_frames().first().copied();
+    let off_frames: Vec<i32> = scan
+        .off_frames()
+        .into_iter()
+        .map(|i| (header.first + i) as i32)
+        .collect();
+    let first_off = first_frame
+        .and_then(|i| scan.off_bounds[i])
         .map_or_else(Vec::new, |(x, y, w, h)| {
             vec![x as i32, y as i32, w as i32, h as i32]
         });
@@ -632,10 +673,143 @@ pub(super) fn shp_rebind_palette(view: Pin<&mut PictureView>, path: &QString) ->
     }) >= 0
 }
 
+pub(super) fn shp_plan_file(path: &QString) -> ShpPlan {
+    let path = path.to_string();
+    let mut head = [0u8; pictura_shp::HEADER];
+    let read = std::fs::File::open(&path).and_then(|mut f| f.read_exact(&mut head));
+    if read.is_err() || !shp_sniff_file(&QString::from(path.as_str())) {
+        return invalid_plan();
+    }
+    open_plan(&head, &Limits::current()).unwrap_or_else(invalid_plan)
+}
+
+pub(super) fn shp_plan_window(view: &PictureView, frame: i32, count: i32) -> ShpPlan {
+    let (Some(header), Ok(frame), Ok(count)) = (
+        view_header(view),
+        usize::try_from(frame),
+        usize::try_from(count),
+    ) else {
+        return invalid_plan();
+    };
+    if frame >= header.total {
+        return invalid_plan();
+    }
+    let count = if count == 0 { header.span } else { count }.clamp(1, header.total);
+    let l = &header.layout;
+    let first = sheet::window_start(frame, count);
+    plan(
+        l.width,
+        l.height,
+        header.total,
+        first,
+        count,
+        &Limits::current(),
+    )
+    .unwrap_or_else(invalid_plan)
+}
+
+pub(super) fn shp_plan_size(view: &PictureView, width: i32, height: i32) -> ShpPlan {
+    let Some(header) = view_header(view) else {
+        return invalid_plan();
+    };
+    let limits = Limits::current();
+    let needed =
+        u64::from(width.max(0).unsigned_abs()) * u64::from(height.max(0).unsigned_abs()) * 4;
+    let need = limits.assess(needed);
+    ShpPlan {
+        valid: true,
+        width: width.max(0),
+        height: height.max(0),
+        total: header.total as i32,
+        first: header.first as i32,
+        count: header.layout.frames as i32,
+        needed,
+        limit: limits.limit,
+        available: limits.available.unwrap_or(0),
+        estimate: need.estimate,
+        stage: i32::from(need.stage),
+        floor_ok: need.floor_ok,
+    }
+}
+
+pub(super) fn shp_set_open_allowance(mut view: Pin<&mut PictureView>, bytes: u64) {
+    view.as_mut()
+        .rust_mut()
+        .shp_open
+        .get_or_insert_with(OpenRequest::default)
+        .allowance = bytes;
+}
+
+pub(super) fn shp_show_frames(
+    mut view: Pin<&mut PictureView>,
+    frame: i32,
+    count: i32,
+    allowance: u64,
+) -> bool {
+    let (Ok(frame), Ok(count)) = (usize::try_from(frame), usize::try_from(count)) else {
+        set_error("no such frame");
+        return false;
+    };
+    let outcome = {
+        let mut rust = view.as_mut().rust_mut();
+        if rust.modal_transform_blocks_edit() {
+            Err("Finish the transform first.".to_string())
+        } else {
+            page_rust(&mut rust, frame, count, &Limits::current(), allowance)
+        }
+    };
+    match outcome {
+        Ok(()) => {
+            set_error("");
+            view.as_mut().recomposite();
+            view.as_mut().session_cancelled();
+            true
+        }
+        Err(message) => {
+            set_error(&message);
+            false
+        }
+    }
+}
+
+pub(super) fn shp_frame_thumbnail(view: &PictureView, index: i32, side: i32) -> ShpThumb {
+    match (view.rust().session.doc.as_ref(), usize::try_from(index)) {
+        (Some(doc), Ok(index)) => thumbnail(doc, index, usize::try_from(side).unwrap_or(1)),
+        _ => ShpThumb {
+            width: 0,
+            height: 0,
+            argb: Vec::new(),
+        },
+    }
+}
+
+pub(super) fn shp_frame_stamp(view: &PictureView, index: i32) -> u64 {
+    match (view.rust().session.doc.as_ref(), usize::try_from(index)) {
+        (Some(doc), Ok(index)) => frame_stamp(doc, index).unwrap_or(u64::MAX),
+        _ => u64::MAX,
+    }
+}
+
+pub(super) fn shp_set_test_limits(limit: u64, available: u64) {
+    set_test_limits(limit, available);
+}
+
+pub(super) fn shp_footprint_factor() -> u64 {
+    FOOTPRINT_FACTOR
+}
+
 pub(super) fn shp_last_error() -> QString {
     LAST_ERROR.with(|e| QString::from(e.borrow().as_str()))
 }
 
+#[path = "window.rs"]
+mod window;
+use window::*;
+
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "window_tests.rs"]
+mod window_tests;

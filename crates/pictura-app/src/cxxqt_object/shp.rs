@@ -9,6 +9,11 @@
 //! refuses off-palette pixels and gutter bleed (the shell offers a recorded
 //! snap or clear first), and keeps every untouched frame's bytes.
 //!
+//! A file whose sheet would be over the size limit opens as a **window**
+//! of frames; the frames outside it stay in the resource (the original
+//! file, plus the edited ones in its frame store) until the shell pages
+//! them in with `shp_show_frames`.
+//!
 //! The hooks into upstream files are listed in `crates/pictura-shp/HOOKS.md`.
 
 mod imp;
@@ -16,7 +21,7 @@ mod imp;
 use super::qobject::PictureView;
 use imp::*;
 pub(in crate::cxxqt_object) use imp::{
-    decode_shp, save_shp, with_document_palette, with_open_palette,
+    decode_shp, save_shp, with_document_palette, with_open_request, OpenRequest,
 };
 
 #[cxx_qt::bridge]
@@ -46,6 +51,50 @@ pub mod ffi {
         /// True when the document was read from a file whose untouched
         /// frames Save keeps byte for byte.
         has_source: bool,
+        /// The file frame in the sheet's first cell; `frames` from it are on
+        /// the sheet.
+        first: i32,
+        /// The frames in the file (more than `frames` when it is paged).
+        total: i32,
+        /// The window size paging uses (`frames`, except on a short last
+        /// window).
+        span: i32,
+    }
+
+    /// A sheet measured against the SHP size limit. Sizes in bytes; a
+    /// sheet's bytes are its RGBA.
+    #[namespace = "pictura"]
+    struct ShpPlan {
+        valid: bool,
+        /// The SHP canvas (or, for a size change, the new document size).
+        width: i32,
+        height: i32,
+        total: i32,
+        /// The window: `count` frames from `first`.
+        first: i32,
+        count: i32,
+        /// The sheet's bytes.
+        needed: u64,
+        /// The size limit.
+        limit: u64,
+        /// Memory available now; 0 when it cannot be read.
+        available: u64,
+        /// The estimated real footprint (`needed` times the measured factor).
+        estimate: u64,
+        /// 0 within the limit, 1 at most 10% over it, 2 further.
+        stage: i32,
+        /// The estimate fits the memory available now. No setting holds a
+        /// sheet when it does not.
+        floor_ok: bool,
+    }
+
+    /// A small ARGB picture of a frame off the sheet.
+    #[namespace = "pictura"]
+    struct ShpThumb {
+        width: i32,
+        height: i32,
+        /// `width * height` straight `0xAARRGGBB`, row-major.
+        argb: Vec<u32>,
     }
 
     /// What Save would find. `error` is non-empty when the document cannot
@@ -106,7 +155,51 @@ pub mod ffi {
         /// it in the document, as one recorded "Change Palette" edit.
         fn shp_rebind_palette(view: Pin<&mut PictureView>, path: &QString) -> bool;
 
-        /// Why the last SHP save, snap, clear or rebind on this thread failed.
+        /// Why the last SHP save, snap, clear, rebind or page change on this
+        /// thread failed.
         fn shp_last_error() -> QString;
+
+        /// The window `path` would open with, from its header (nothing is
+        /// decoded); `valid` is false for a file that is not an SHP.
+        fn shp_plan_file(path: &QString) -> ShpPlan;
+
+        /// The window of `count` frames that holds `frame` (windows are
+        /// aligned to multiples of `count`; 0 keeps the document's size).
+        fn shp_plan_window(view: &PictureView, frame: i32, count: i32) -> ShpPlan;
+
+        /// The SHP document resized to `width` x `height`.
+        fn shp_plan_size(view: &PictureView, width: i32, height: i32) -> ShpPlan;
+
+        /// Bytes of sheet past the size limit the user agreed the next open
+        /// on this view may hold (0: none).
+        fn shp_set_open_allowance(view: Pin<&mut PictureView>, bytes: u64);
+
+        /// Page: show the window of `count` frames (0: the document's
+        /// window size) that holds `frame`,
+        /// keeping the outgoing frames' edits in the frame store. History
+        /// starts again at the new window. `allowance` as above. False with
+        /// the reason in `shp_last_error` when it cannot.
+        fn shp_show_frames(
+            view: Pin<&mut PictureView>,
+            frame: i32,
+            count: i32,
+            allowance: u64,
+        ) -> bool;
+
+        /// Frame `index` off the sheet, at most `side` pixels a side; empty
+        /// for a frame on the sheet.
+        fn shp_frame_thumbnail(view: &PictureView, index: i32, side: i32) -> ShpThumb;
+
+        /// What frame `index`'s thumbnail depends on besides the palette:
+        /// 0 for an original frame off the sheet, a hash of its stored copy
+        /// for an edited one, `u64::MAX` for a frame on the sheet.
+        fn shp_frame_stamp(view: &PictureView, index: i32) -> u64;
+
+        /// Test seam: the size limit and available memory in bytes (0 keeps
+        /// the real value).
+        fn shp_set_test_limits(limit: u64, available: u64);
+
+        /// The measured real footprint per byte of sheet.
+        fn shp_footprint_factor() -> u64;
     }
 }

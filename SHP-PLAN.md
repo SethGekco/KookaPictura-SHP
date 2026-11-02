@@ -429,4 +429,75 @@ Phase 1, recorded as each slice landed:
   28741x28169, 3.2 GB of RGBA before the composite and history copies (7
   of 4,819 files; the next largest sheet is 360 MB). Opening it would have
   exhausted the machine's memory. Phase 2's one-frame-at-a-time view is the
-  way to edit such sprites.
+  way to edit such sprites. (Superseded in Phase 2: such sprites now open
+  as a frame window, below.)
+
+Phase 2, the frame window (paged frames):
+
+- **Big sprites open as a window of frames.** The document holds the
+  sheet of frames `first..first+span`; the Frames panel lists every frame
+  of the file. Clicking a frame off the sheet, or stepping past the window
+  edge with `,` / `.`, pages the window. Opening reads only the 8-byte
+  header to plan the window and decodes only its frames (`frame_canvas`);
+  a whole-file decode never happens.
+- **The window budget is 256 MiB of sheet RGBA** (`WINDOW_BUDGET`), or
+  `MemAvailable / FOOTPRINT_FACTOR` when less memory is free. Measured
+  2026-11-02, peak RSS of the headless app: about 0.5 GB of base plus 9.6x
+  the sheet at open (slope over 67 MB and 269 MB generated sheets), 12.5x
+  after two fills, and 18x on `sppnuke.shp`'s 185 MB window after a fill
+  and two saves (3.9 GB peak). `FOOTPRINT_FACTOR` is 20, rounded up from
+  that worst case. Over the owner's 4,810 valid SHPs, 4,789 sheets fit
+  256 MiB and open whole exactly as in Phase 1 (the largest whole sheet is
+  211 MiB); 21 page: the 7 `sppnuke.shp` copies (3,088 MiB each) and 14
+  explosion and `ambusher.shp` sheets of 257-343 MiB. A budget of 256 MiB
+  keeps every open within about 2.6 GB on this 16 GB machine, which has
+  frozen twice under memory pressure. The window holds as many frames as
+  fit, in whole facing sets of 8 when the count is a multiple of 8, and at
+  least one frame. `sppnuke.shp` (136 frames of 2052x2816) opens frames
+  0-7 as a 16423x2816 sheet (185 MB), peak RSS 2.6 GB at open (3.9 GB
+  after an edit and two saves) instead of the 3.2 GB sheet plus copies
+  that Phase 1 refused.
+- **The frame store lives in the KookaSHP resource, not beside the
+  document** (a deviation from the brief's "outside the document"). The
+  resource gained a version 2: the window (`first`, `total`, `span`) and,
+  after the original file bytes, the edited frames that are off the sheet,
+  as RGBA-free palette indices (each frame's full canvas in RLE-Zero
+  lines). The pixel layers hold only the window. Keeping the store in the
+  resource keeps undo, revert, duplicate and a PSD Save As consistent with
+  no new state field and no external store that could go stale; the
+  resource is re-encoded only when the window pages. A whole document still
+  writes the version 1 block, byte for byte as before. Untouched frames
+  save from the original bytes verbatim (`build_with` /
+  `FramePlane::Unchanged`, no decode); a stored frame that matches its
+  original again is dropped from the store.
+- **Paging is the edge of undo history** (paged files only). A page change
+  replaces the document with the new window and starts a fresh history
+  whose first state is "Frames a-b of n"; edits made before it are kept in
+  the frame store but can no longer be undone. Holding undo for frames that
+  are no longer in memory would mean keeping their sheets, which is exactly
+  the memory paging exists to save. The status bar says so on every page
+  change ("Frames a-b of n loaded. Loading other frames starts a new undo
+  history.") and the Frames panel's label tooltip repeats it. A modified
+  document stays modified across a page change; a clean one stays clean.
+- **Paging runs the save gate's clean check first.** Leaving a window with
+  off-palette pixels or drawn gutters offers the same Snap / Clear choices
+  as a save ("...and Continue"), or refuses with the reason when there is
+  no interactive platform. So every frame in the store is exact palette
+  indices with clean gutters, and the save gate covers off-sheet edits by
+  construction: saving encodes window frames from the sheet, stored frames
+  from the store, and the rest verbatim.
+- **Off-sheet thumbnails are drawn from the store or the original bytes**,
+  one frame at a time, nearest-neighbour, at most the thumbnail side,
+  cached by a stamp (0 for the original, a hash of the stored data) so an
+  edited frame's thumbnail refreshes after paging.
+- **The open request reaches the worker as one value.** Phase 1's
+  `shp_open_palette` state field became `shp_open` (an `OpenRequest`:
+  palette and size-limit allowance), and `with_open_palette` became
+  `with_open_request`.
+- **The paging edit check on the real `sppnuke.shp` is a Rust test**
+  (`window_tests::a_real_big_sprite_pages_an_edit_far_from_frame_0`,
+  ignored, `SHP_BIG`/`SHP_BIG_OUT`), checked by the independent decoder in
+  the e2e script. The control server cannot click the Frames panel: window-
+  space pointer events and keys need the admin tier, which the CLI does
+  not grant. The app e2e covers the window open, an unchanged save, an
+  in-window one-pixel edit and peak RSS.

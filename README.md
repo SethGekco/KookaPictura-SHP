@@ -19,8 +19,12 @@ effect art directly.
   colour, load or swap palettes, remembered per folder). Ctrl+S saves the SHP
   in place: frames you did not touch are written back byte for byte, and
   pixels that are not palette colours are caught before saving instead of
-  being changed silently. Checked against 4,819 real SHPs: every valid one
-  that fits in memory saves back byte-identical. Next: onion skin, frame
+  being changed silently. Sprites too big to hold whole (such as a
+  136-frame 2052x2816 superweapon) open as a window of frames: the Frames
+  panel lists them all, and clicking or stepping to another frame loads it,
+  keeping your edits (loading another window starts a new undo history).
+  Checked against 4,819 real SHPs: every valid one saves back
+  byte-identical. Next: onion skin, frame
   add/remove/reorder, playback preview, shadow tools, house-colour preview
   (see [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,

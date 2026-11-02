@@ -29,7 +29,9 @@ mod source;
 
 pub use codec::{
     decode_frame, decode_prefixed_line, decode_rle_line, encode_prefixed, encode_rle,
-    encode_rle_line, frame_span, line_span, parse, sniff, table_bytes, Error, Frame, FrameHeader,
-    Sprite, FRAME_HEADER, HEADER, MAX_FRAMES, MAX_SIDE,
+    encode_rle_line, frame_canvas, frame_span, line_span, parse, sniff, table_bytes, Error, Frame,
+    FrameHeader, Sprite, FRAME_HEADER, HEADER, MAX_FRAMES, MAX_SIDE,
 };
-pub use source::{build, build_frames, build_preserving, Source, SourceFrame};
+pub use source::{
+    build, build_frames, build_preserving, build_with, FramePlane, Source, SourceFrame,
+};
