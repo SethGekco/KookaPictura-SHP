@@ -572,7 +572,8 @@ bool PicturaMainWindow::saveActiveAs(const QString& path)
 {
     const int index = activeDocumentIndex();
     PictureView* view = viewAt(index);
-    if (!view || path.isEmpty()) {
+    // A suffix no writer handles is refused here, before any worker starts.
+    if (!view || path.isEmpty() || !isWritableSavePath(path)) {
         return false;
     }
     const QString name = QFileInfo(path).fileName();

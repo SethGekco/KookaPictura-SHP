@@ -286,9 +286,15 @@ bool documentRequiresLayers(PictureView* view)
     return !documentIsFlat(view);
 }
 
+bool isWritableSavePath(const QString& path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return suffix.isEmpty() || isKnownImageSuffix(suffix);
+}
+
 bool savePathNeedsFormatDialog(const QString& path, PictureView* view, bool pathIsNative)
 {
-    if (path.isEmpty()) {
+    if (path.isEmpty() || !isWritableSavePath(path)) {
         return true;
     }
     return view && !pathIsNative && documentRequiresLayers(view);

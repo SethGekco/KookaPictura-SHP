@@ -29,7 +29,8 @@ pub(super) fn format_for_path(path: &str) -> String {
 }
 
 /// The Qt image writer for a raster path suffix, or `None` for PSD/PSB and
-/// unrecognized suffixes (which go through the PSD codec).
+/// unrecognized suffixes (the PSD codec writes only `psd`/`psb` paths and
+/// refuses the rest).
 pub(super) fn raster_writer_for_suffix(suffix: &str) -> Option<&'static str> {
     Some(match suffix {
         "png" => "PNG",

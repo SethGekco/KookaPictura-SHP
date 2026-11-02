@@ -121,6 +121,12 @@ bool PicturaMainWindow::saveAsWithDialog()
     const int chosen = filters.indexOf(selected);
     const int filterIndex = chosen >= 0 ? chosen : sourceIndex;
     path = pathForSaveFilter(path, filterIndex, sourceIndex);
+    if (!isWritableSavePath(path)) {
+        QMessageBox::warning(this, tr("Save As"),
+                             tr("Kooka Pictura cannot save .%1 files. Choose one of the listed "
+                                "formats.").arg(QFileInfo(path).suffix()));
+        return false;
+    }
     if (isPdfPath(path)) {
         const bool saved = savePdfWithDialog(path);
         if (saved && !saveActiveInProgress()) {

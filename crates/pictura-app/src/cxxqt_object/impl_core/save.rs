@@ -1,5 +1,6 @@
 //! Document save: native PSD/PSB through the worker job, raster with the
-//! per-document profile choice.
+//! per-document profile choice. Any other suffix is refused, never written
+//! as a PSD under that name.
 
 use super::*;
 

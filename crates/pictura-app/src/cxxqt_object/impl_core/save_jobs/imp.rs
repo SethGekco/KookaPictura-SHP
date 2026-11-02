@@ -3,7 +3,7 @@ use super::*;
 use super::super::super::color_management::save_embed_default;
 use super::super::super::filter_tools::store_planes;
 use super::super::super::state::PictureViewRust;
-use super::super::{format_for_path, raster_writer_for_suffix};
+use super::super::format_for_path;
 use core::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
@@ -32,8 +32,11 @@ pub(in crate::cxxqt_object) fn save_start_rust(rust: &mut PictureViewRust, path:
     if rust.save_job.is_some() {
         return false;
     }
+    // Only a native path gets PSD bytes. Any other suffix (raster, PDF, or
+    // one nothing here writes, such as `.shp`) is refused rather than given
+    // a PSD under a foreign name; a path with no suffix is a PSD.
     let suffix = format_for_path(path);
-    if matches!(suffix.as_str(), "pdf" | "pdp") || raster_writer_for_suffix(&suffix).is_some() {
+    if !matches!(suffix.as_str(), "psd" | "psb") {
         return false;
     }
     let session = &rust.session;
@@ -182,6 +185,38 @@ mod tests {
         assert!(!rust.session.dirty);
         assert!(std::path::Path::new(&path).is_file());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_foreign_suffix_never_gets_psd_bytes() {
+        for name in [
+            "sprite.shp",
+            "sprite.SHP",
+            "notes.foo",
+            "image.png",
+            "doc.pdf",
+        ] {
+            let mut rust = view();
+            let path = path(name);
+            assert!(!save_start_rust(&mut rust, &path), "{name} is refused");
+            assert!(rust.save_job.is_none());
+            assert!(
+                !std::path::Path::new(&path).exists(),
+                "{name}: nothing written"
+            );
+            assert!(rust.session.dirty);
+            assert!(rust.path.is_none());
+        }
+        let mut rust = view();
+        let bare = path("no-suffix");
+        assert!(
+            save_start_rust(&mut rust, &bare),
+            "no suffix still means PSD"
+        );
+        wait(&rust);
+        assert!(save_finish_rust(&mut rust));
+        assert!(std::fs::read(&bare).unwrap().starts_with(b"8BPS"));
+        let _ = std::fs::remove_file(&bare);
     }
 
     #[test]

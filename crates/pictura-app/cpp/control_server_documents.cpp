@@ -127,6 +127,11 @@ QJsonObject ControlServer::methodDocument(const QJsonObject& params)
             !problem.isEmpty()) {
             return error(QStringLiteral("invalid_param"), problem);
         }
+        if (!path.isEmpty() && !isWritableSavePath(path)) {
+            return error(QStringLiteral("invalid_param"),
+                         QStringLiteral("cannot save .%1 files; use a suffix from the Save As "
+                                        "formats").arg(QFileInfo(path).suffix()));
+        }
         if (op == QStringLiteral("save_as")) {
             if (path.isEmpty()) {
                 return error(QStringLiteral("invalid_param"), QStringLiteral("path is required"));

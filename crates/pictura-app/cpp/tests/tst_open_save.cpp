@@ -1,5 +1,6 @@
 // Open/Save fixes (#874, #875): a raster open records its path, the Save As
-// filter owns the extension, and JPEG/TIFF keep the document metadata.
+// filter owns the extension, and JPEG/TIFF keep the document metadata. Save
+// never writes PSD bytes under a suffix it has no writer for.
 
 #include <QtTest/QtTest>
 
@@ -18,8 +19,11 @@
 #include <QtCore/QProcess>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QTemporaryDir>
+#include <QtCore/QTimer>
 #include <QtGui/QImage>
 #include <QtGui/QImageReader>
+#include <QtWidgets/QApplication>
+#include <QtWidgets/QFileDialog>
 
 #include "qt_test_support.h"
 
@@ -30,6 +34,7 @@ private slots:
     void rasterOpenKeepsFilePath();
     void chosenFormatWinsOverTypedSuffix();
     void rasterSaveKeepsFileInfo();
+    void unknownSuffixNeverGetsPsdBytes();
 
 private:
     pictura::test::ScopedStateHome stateHome_;
@@ -136,6 +141,62 @@ void OpenSaveTest::rasterSaveKeepsFileInfo()
         QCOMPARE(fields.value(QStringLiteral("Make")).toString(),
                  QStringLiteral("ACME Cameras"));
     }
+}
+
+void OpenSaveTest::unknownSuffixNeverGetsPsdBytes()
+{
+    QVERIFY(pictura::isWritableSavePath(QStringLiteral("/tmp/a.PSD")));
+    QVERIFY(pictura::isWritableSavePath(QStringLiteral("/tmp/a.png")));
+    QVERIFY(pictura::isWritableSavePath(QStringLiteral("/tmp/no-suffix")));
+    QVERIFY(!pictura::isWritableSavePath(QStringLiteral("/tmp/a.shp")));
+    QVERIFY(!pictura::isWritableSavePath(QStringLiteral("/tmp/a.foo")));
+
+    // A flat document opened from a suffix nothing writes (the reader takes
+    // the PNG bytes by content), as a sprite opened through an image plugin.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString sprite = dir.filePath(QStringLiteral("sprite.shp"));
+    QImage image(8, 8, QImage::Format_RGBA8888);
+    image.fill(QColor(40, 50, 60));
+    QVERIFY(image.save(sprite, "PNG"));
+    const auto bytes = [](const QString& path) {
+        QFile file(path);
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+    };
+    const QByteArray before = bytes(sprite);
+
+    auto window = pictura::test::makeMainWindow();
+    QVERIFY(window->openDocumentAtPath(sprite));
+    QCOMPARE(window->documentPath(0), sprite);
+    pictura::PictureView* view = window->viewAt(0);
+    QVERIFY(view);
+    QVERIFY2(pictura::savePathNeedsFormatDialog(sprite, view, false),
+             "Save of a flat document still goes to Save As for an unwritable suffix");
+
+    const QString foo = dir.filePath(QStringLiteral("out.foo"));
+    QVERIFY(!window->saveActiveAs(sprite));
+    QVERIFY(!window->saveActiveAs(foo));
+    QVERIFY(!QFileInfo::exists(foo));
+    QCOMPARE(bytes(sprite), before);
+
+    // Ctrl+S opens the Save As dialog instead of writing; cancel it.
+    bool dialogShown = false;
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, [&] {
+        for (QWidget* widget : QApplication::allWidgets()) {
+            auto* dialog = qobject_cast<QFileDialog*>(widget);
+            if (dialog && dialog->isVisible()) {
+                dialogShown = true;
+                dialog->reject();
+            }
+        }
+    });
+    poll.start(20);
+    QVERIFY(!window->saveActive());
+    poll.stop();
+    QVERIFY(dialogShown);
+    QCOMPARE(bytes(sprite), before);
+    QVERIFY(!bytes(sprite).startsWith("8BPS"));
 }
 
 QTEST_MAIN(OpenSaveTest)
