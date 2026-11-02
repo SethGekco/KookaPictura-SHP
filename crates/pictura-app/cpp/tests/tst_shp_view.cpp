@@ -8,6 +8,7 @@
 #include "frame.h"
 #include "image_view.h"
 #include "panels/shp_frames_panel.h"
+#include "panels/shp_playback_panel.h"
 #include "shp_palettes.h"
 #include "shp_support.h"
 
@@ -52,6 +53,8 @@ private slots:
     void cleanup();
     void onionGhostsNeighboursWithoutChangingSamplesOrBytes();
     void onionStopsAtThePagedWindowEdge();
+    void playbackStepsThroughTheRange();
+    void playbackDecodesFramesOffAPagedSheet();
 };
 
 void ShpViewTest::init()
@@ -164,6 +167,89 @@ void ShpViewTest::onionStopsAtThePagedWindowEdge()
     const QRgb plain5 = shown(canvas, p5.x(), p5.y());
     frames->onion()->setChecked(true);
     QTRY_VERIFY(shown(canvas, p5.x(), p5.y()) != plain5);
+}
+
+void ShpViewTest::playbackStepsThroughTheRange()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QTRY_COMPARE(support_->frames()->frameCount(), kFrames);
+    pictura::ShpPlaybackPanel* play = support_->playback();
+    QVERIFY(play);
+    QCOMPARE(play->to(), kFrames - 1);
+    support_->frames()->focusFrame(7);
+    const int history = view->history_index();
+
+    // The preview shows the live sheet pixels of the frame.
+    const QRect c3 = support_->frames()->cellRect(3);
+    const QImage f3 = play->frameImage(3);
+    QCOMPARE(f3.size(), QSize(kW, kH));
+    QCOMPARE(f3.pixel(1, 0), QRgb(view->composite_argb(c3.x() + 1, c3.y())));
+    QCOMPARE(qAlpha(f3.pixel(0, 0)), 0);
+
+    play->setRange(2, 4);
+    play->setLoop(true);
+    play->setFrame(2);
+    QList<int> seen;
+    for (int i = 0; i < 4; ++i) {
+        play->advance();
+        seen << play->frame();
+    }
+    QCOMPARE(seen, QList<int>({3, 4, 2, 3}));
+
+    // Once through: it stops on the last frame, and Play starts it again.
+    play->setLoop(false);
+    play->setFrame(2);
+    play->setPlaying(true);
+    QVERIFY(play->playing());
+    play->setFps(10);
+    QCOMPARE(play->intervalMs(), 100);
+    play->advance();
+    play->advance();
+    QCOMPARE(play->frame(), 4);
+    QVERIFY(!play->playing());
+    play->setPlaying(true);
+    QCOMPARE(play->frame(), 2);
+
+    // The timer drives it; the editor's frame and History stay put.
+    play->setLoop(true);
+    play->setFps(60);
+    QTRY_VERIFY(play->frame() != 2);
+    play->setPlaying(false);
+    QCOMPARE(support_->frames()->current(), 7);
+    QCOMPARE(view->history_index(), history);
+}
+
+void ShpViewTest::playbackDecodesFramesOffAPagedSheet()
+{
+    pictura::shp_set_test_limits(kPagedLimit, 0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QTRY_COMPARE(support_->frames()->frameCount(), kFrames);
+    pictura::ShpPlaybackPanel* play = support_->playback();
+    QCOMPARE(pictura::shp_info(*view).frames, 4);
+    play->setLoop(true);
+    play->setFrame(0);
+    for (int i = 0; i < kFrames; ++i) {
+        play->advance();
+    }
+    QCOMPARE(play->frame(), 0);
+    // Playing never pages: the window is where it was.
+    QCOMPARE(pictura::shp_info(*view).first, 0);
+    // The six frames off the sheet were decoded once, into the cache.
+    QCOMPARE(play->cachedBytes(), qint64(6 * kW * kH * 4));
+    QVERIFY(play->cachedBytes() <= pictura::ShpPlaybackPanel::kCacheBytes);
+
+    const QImage f9 = play->frameImage(9);
+    QCOMPARE(f9.size(), QSize(kW, kH));
+    QCOMPARE(qAlpha(f9.pixel(0, 0)), 0);
+    QVERIFY(f9.pixel(1, 0) != play->frameImage(8).pixel(1, 0));
+    // The decoded frame is what the sheet shows once its window is loaded.
+    support_->frames()->focusFrame(9);
+    QCOMPARE(pictura::shp_info(*view).first, 8);
+    const QRect c9 = support_->frames()->cellRect(9);
+    QCOMPARE(f9.pixel(1, 0), QRgb(view->composite_argb(c9.x() + 1, c9.y())));
+    QCOMPARE(play->frameImage(9).pixel(1, 0), f9.pixel(1, 0));
 }
 
 QTEST_MAIN(ShpViewTest)

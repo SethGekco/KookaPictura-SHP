@@ -10,6 +10,7 @@
 #include "shp_palettes.h"
 #include "panels/shp_frames_panel.h"
 #include "panels/shp_palette_panel.h"
+#include "panels/shp_playback_panel.h"
 
 #include <QtCore/QFileInfo>
 #include <QtGui/QGuiApplication>
@@ -96,11 +97,14 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     dock_->setObjectName(QStringLiteral("shpDock"));
     auto* split = new QSplitter(Qt::Horizontal, dock_);
     frames_ = new ShpFramesPanel(split);
+    playback_ = new ShpPlaybackPanel(split);
     palette_ = new ShpPalettePanel(colors, split);
     split->addWidget(frames_);
+    split->addWidget(playback_);
     split->addWidget(palette_);
     split->setStretchFactor(0, 3);
     split->setStretchFactor(1, 1);
+    split->setStretchFactor(2, 1);
     dock_->setWidget(split);
     dock_->hide();
     connect(palette_, &ShpPalettePanel::message, this, &ShpSupport::message);
@@ -159,6 +163,7 @@ void ShpSupport::setView(PictureView* view, ImageView* canvas)
     view_ = view;
     const bool shp = view && shp_info(*view).valid;
     frames_->setView(view, canvas);
+    playback_->setView(view);
     palette_->setView(view);
     prevKey_->setEnabled(shp);
     nextKey_->setEnabled(shp);
@@ -183,6 +188,7 @@ void ShpSupport::refresh()
     }
     wasShp_ = shp;
     frames_->refresh();
+    playback_->refresh();
     palette_->refresh();
 }
 

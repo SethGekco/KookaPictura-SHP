@@ -626,3 +626,13 @@ Phase 2, authoring (recorded as each piece landed):
   operations, authoring) and `tst_shp_view` (onion skin, playback,
   overlays, readouts, disabled commands), sharing the generated sprites in
   `cpp/tests/shp_fixtures.h`, to stay under the 1,400-line test-file cap.
+- **Playback preview** is a third panel in the SHP dock (between Frames
+  and Palette): Play/Pause, frames per second (1-60, default 15), the
+  range played, and Loop (off: it stops on the last frame and Play starts
+  again from the first). It has its own frame and never moves the
+  editor's current frame, touches History, or pages a big sprite. Frames
+  on the sheet are read from the live composite, so an edit shows on the
+  next tick; frames off a paged window are decoded from the frame store or
+  the file (the thumbnail decoder at full size) into a `QCache` capped at
+  16 MiB, keyed by frame and its stamp and dropped when the document or
+  palette changes.

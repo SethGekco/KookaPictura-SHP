@@ -16,7 +16,7 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/src/cxxqt_object/open_jobs/imp.rs` | `decode_image_with_options`: `shp::decode_shp` right after the file is read, before `decode_import` (so it wins over an installed Qt SHP plugin and skips `finalize_import`); `open_image_start`: takes `shp_open` and runs the decode inside `shp::with_open_request` |
 | `crates/pictura-app/src/cxxqt_object/impl_core.rs` | `revert`: the decode runs inside `shp::with_document_palette`, so a reverted SHP keeps its palette |
 | `crates/pictura-app/src/cxxqt_object/impl_core/save.rs` | `save`: an `shp` suffix goes to `shp::save_shp` before the native fallback |
-| `CMakeLists.txt` | the new shell sources (`shp_authoring`, `shp_palettes`, `shp_support`, `image_view_shp`, `panels/shp_{frames,palette}_panel`) |
+| `CMakeLists.txt` | the new shell sources (`shp_authoring`, `shp_palettes`, `shp_support`, `image_view_shp`, `panels/shp_{frames,palette,playback}_panel`) |
 | `crates/pictura-app/cpp/tests/CMakeLists.txt` | `tst_shp` and `tst_shp_view` in the suite list |
 | `crates/pictura-app/cpp/frame_build.cpp` | `registerPanel(ShpSupport::install(this, colorState_)->dock(), Qt::BottomDockWidgetArea)` and its include |
 | `crates/pictura-app/cpp/frame_session.cpp` | `retargetDock` calls `ShpSupport::setView`, `refreshDock` calls `ShpSupport::refresh`; one include |
@@ -41,7 +41,7 @@ the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP opens with),
 `cpp/shp_support.{h,cpp}` (the dock, `,`/`.` stepping, paging, frame operations, the save gate,
 the File > New SHP menu entry, inserted after File > New at runtime),
 `cpp/shp_authoring.{h,cpp}` (the New SHP and Save As SHP dialogs),
-`cpp/panels/shp_{frames,palette}_panel.{h,cpp}`, `cpp/image_view_shp.cpp`
+`cpp/panels/shp_{frames,palette,playback}_panel.{h,cpp}`, `cpp/image_view_shp.cpp`
 (the frame grid and onion skin) and `cpp/tests/{tst_shp,tst_shp_view}.cpp` with their
 shared generated sprites in `cpp/tests/shp_fixtures.h`.
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// KookaPictura-SHP fork: the SHP dock (Frames + Palette), frame stepping,
+// KookaPictura-SHP fork: the SHP dock (Frames, Playback, Palette), frame stepping,
 // and the save gate. The frame reaches it through three one-line hooks
 // (install, retarget, refresh) listed in crates/pictura-shp/HOOKS.md.
 #pragma once
@@ -21,6 +21,7 @@ class ImageView;
 class PictureView;
 class ShpFramesPanel;
 class ShpPalettePanel;
+class ShpPlaybackPanel;
 struct ShpPlan;
 
 // True for a path with the .shp suffix (any case).
@@ -38,6 +39,7 @@ public:
     QDockWidget* dock() const { return dock_; }
     ShpFramesPanel* frames() const { return frames_; }
     ShpPalettePanel* palette() const { return palette_; }
+    ShpPlaybackPanel* playback() const { return playback_; }
 
     // The active document changed: follow it, and show the dock when an
     // SHP becomes active.
@@ -170,6 +172,7 @@ private:
     QDockWidget* dock_ = nullptr;
     ShpFramesPanel* frames_ = nullptr;
     ShpPalettePanel* palette_ = nullptr;
+    ShpPlaybackPanel* playback_ = nullptr;
     QAction* newShpAction_ = nullptr;
     bool savedCopy_ = false;
     QShortcut* prevKey_ = nullptr;

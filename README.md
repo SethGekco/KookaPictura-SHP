@@ -31,9 +31,10 @@ effect art directly.
   File > New SHP starts a sprite from blank frames, and Save As SHP turns
   any image or sprite sheet into a new SHP document (frame size or grid,
   palette, nearest-colour mapping). Onion skin ghosts the previous and next
-  frames behind the current one (view only).
+  frames behind the current one (view only), and a playback preview plays
+  any range of frames at a chosen speed, once or looped.
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: playback preview, shadow tools,
+  byte-identical. Next: shadow tools,
   house-colour preview (see [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that

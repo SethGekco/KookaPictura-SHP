@@ -649,6 +649,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/info_panel.cpp
     crates/pictura-app/cpp/panels/notes_panel.cpp
     crates/pictura-app/cpp/panels/shp_frames_panel.cpp
+    crates/pictura-app/cpp/panels/shp_playback_panel.cpp
     crates/pictura-app/cpp/panels/shp_palette_panel.cpp
     crates/pictura-app/cpp/panels/histogram_panel.cpp
     crates/pictura-app/cpp/panels/adjustments_panel.cpp
@@ -847,6 +848,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/info_panel.h
     crates/pictura-app/cpp/panels/notes_panel.h
     crates/pictura-app/cpp/panels/shp_frames_panel.h
+    crates/pictura-app/cpp/panels/shp_playback_panel.h
     crates/pictura-app/cpp/panels/shp_palette_panel.h
     crates/pictura-app/cpp/shp_authoring.h
     crates/pictura-app/cpp/shp_palettes.h
