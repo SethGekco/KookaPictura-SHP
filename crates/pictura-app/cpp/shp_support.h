@@ -11,6 +11,7 @@
 class QDockWidget;
 class QMainWindow;
 class QShortcut;
+class QWidget;
 
 namespace pictura {
 
@@ -19,6 +20,7 @@ class ImageView;
 class PictureView;
 class ShpFramesPanel;
 class ShpPalettePanel;
+struct ShpPlan;
 
 // True for a path with the .shp suffix (any case).
 bool isShpPath(const QString& path);
@@ -58,12 +60,58 @@ public:
     // starts a new undo history; the status bar says so. False, with the
     // reason in lastGateMessage(), when it does not happen.
     bool pageTo(int frame, int span = 0);
+    // The bytes of sheet past the limit the user agreed `view` may hold.
+    static quint64 allowanceOf(const PictureView* view);
     QString lastGateMessage() const { return gateMessage_; }
     // Why the last SHP write failed after the gate let it through.
     QString lastSaveError() const;
 
     // Test seam: force the gate's dialogs on (or off) whatever the platform.
     static void setGateInteractive(int interactive);
+
+    // --- The SHP size limit (Edit > Preferences > Advanced) ---------------
+    // A sheet over the limit opens as a window of frames. Holding more than
+    // the limit (a whole sheet, a window of one frame that is itself over
+    // it, a bigger window, a resize) needs "Allow SHP files over the size
+    // limit", and past 10% over also "Remove the 10% ceiling", and each time
+    // a confirmation with a checkbox (a second one past 10%). Neither
+    // setting is saved: both are off whenever Kooka starts. No setting
+    // passes the floor: the estimated footprint must fit the memory
+    // available now. Without dialogs (offscreen, the control server) a step
+    // that needs confirming is refused with the reason, never confirmed.
+    bool allowOverLimit() const { return allowOverLimit_; }
+    void setAllowOverLimit(bool on);
+    // Effective only while allowOverLimit() is on.
+    bool removeCeiling() const { return removeCeiling_; }
+    void setRemoveCeiling(bool on);
+    // The Preferences page holding both settings (owned by `parent`).
+    QWidget* advancedPage(QWidget* parent);
+
+    // Before `view` opens the SHP at `path` (header only): confirm or refuse
+    // what is over the limit, and grant `view` the agreed allowance. False
+    // when the open must not go ahead; the reason in lastLimitMessage().
+    bool confirmOpen(PictureView* view, const QString& path);
+    // Before `view` (an SHP or not) is resized to `width` x `height` (Image
+    // Size, Canvas Size). False when it must not be.
+    bool allowSize(PictureView* view, int width, int height);
+    // Hold windows of `count` frames of the active paged SHP.
+    bool setWindowFrames(int count);
+    QString lastLimitMessage() const { return limitMessage_; }
+
+    // Spans a control request: no size-limit dialog is shown, and a step
+    // the limit refused is reported (`refusal()`), so the request can
+    // answer `refused` with the reason.
+    class Quiet {
+    public:
+        Quiet();
+        ~Quiet();
+        Quiet(const Quiet&) = delete;
+        Quiet& operator=(const Quiet&) = delete;
+        QString refusal() const;
+    };
+
+signals:
+    void limitSettingsChanged();
 
 private:
     ShpSupport(QMainWindow* frame, ColorState* colors);
@@ -75,6 +123,19 @@ private:
     // the recorded fixes offered when `dialogs` and interactive.
     bool cleanGate(PictureView* view, bool dialogs, bool paging);
     void refreshFrame();
+    enum class Verdict { Go, Alternative, Refused, Cancelled };
+    // Measure `plan` against the limit and the settings; ask (stages the
+    // view has not confirmed yet) when dialogs are allowed. `what` names
+    // the step ("Opening x.shp"); `go`/`alternative` label the buttons.
+    Verdict confirmLimit(const ShpPlan& plan, int confirmedStage, const QString& what,
+                         const QString& go, const QString& alternative);
+    Verdict limitDialog(const ShpPlan& plan, int stage, const QString& what, const QString& go,
+                        const QString& alternative);
+    // A refusal the user should see: status bar, a warning when dialogs are
+    // allowed, and the control request's answer.
+    bool refuseLimit();
+    bool asksNow() const;
+    static void grant(PictureView* view, quint64 bytes, int stage);
 
     QMainWindow* frame_ = nullptr;
     QDockWidget* dock_ = nullptr;
@@ -85,6 +146,9 @@ private:
     QPointer<PictureView> view_;
     bool wasShp_ = false;
     QString gateMessage_;
+    QString limitMessage_;
+    bool allowOverLimit_ = false;
+    bool removeCeiling_ = false;
 };
 
 } // namespace pictura

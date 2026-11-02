@@ -269,6 +269,30 @@ fn an_open_over_the_limit_needs_an_allowance() {
 }
 
 #[test]
+fn an_allowance_for_the_whole_sheet_opens_it_whole() {
+    // 10 frames: 4 x 3 cells, 51 x 32 x 4 = 6528 bytes, three times 2200.
+    let whole = plan(W, H, FRAMES, 0, FRAMES, &small()).unwrap();
+    assert_eq!((whole.needed, whole.stage), (6528, 2));
+    let opened = open_sheet(
+        "/tmp/x.shp",
+        &sprite(),
+        choice(),
+        false,
+        &|_, _| {},
+        &small(),
+        whole.needed,
+    )
+    .expect("opens whole with the allowance");
+    let h = header(&opened.doc).unwrap();
+    assert_eq!((h.first, h.layout.frames, h.total), (0, FRAMES, FRAMES));
+    assert!(!h.paged());
+    assert_eq!(encode(&opened.doc).unwrap(), sprite());
+    // Without it, the same file opens as a window of 4.
+    let windowed = open_plan(&sprite(), &small(), 0).unwrap();
+    assert_eq!((windowed.count, windowed.stage), (4, 0));
+}
+
+#[test]
 fn frames_off_the_sheet_have_thumbnails() {
     let mut rust = paged(&sprite());
     assert!(thumbnail(doc(&rust), 2, 56).argb.is_empty(), "on the sheet");
@@ -310,7 +334,7 @@ fn a_whole_document_keeps_the_version_1_block() {
     let rust = super::tests::opened(sprite(), choice());
     let data = block(doc(&rust)).unwrap();
     assert_eq!(&data[4..6], &[0, 1]);
-    assert!(open_plan(&sprite(), &roomy()).is_some_and(|p| p.count == FRAMES as i32));
+    assert!(open_plan(&sprite(), &roomy(), 0).is_some_and(|p| p.count == FRAMES as i32));
 }
 
 /// A real big sprite (SHP_BIG, e.g. sppnuke.shp: 136 frames of 2052x2816)
@@ -325,7 +349,7 @@ fn a_real_big_sprite_pages_an_edit_far_from_frame_0() {
     let out = std::env::var("SHP_BIG_OUT").expect("SHP_BIG_OUT");
     let bytes = std::fs::read(&path).expect("reads");
     let limits = Limits::current();
-    let plan = open_plan(&bytes, &limits).expect("plans");
+    let plan = open_plan(&bytes, &limits, 0).expect("plans");
     eprintln!(
         "plan: {} frames of {}x{}, window {} ({} bytes of sheet, limit {})",
         plan.total, plan.width, plan.height, plan.count, plan.needed, plan.limit

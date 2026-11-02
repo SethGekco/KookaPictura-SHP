@@ -11,12 +11,19 @@
 #include <QtGui/QGuiApplication>
 #include <QtGui/QKeySequence>
 #include <QtGui/QShortcut>
+#include <QtWidgets/QCheckBox>
+#include <QtWidgets/QDialog>
+#include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QDockWidget>
+#include <QtWidgets/QLabel>
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QSplitter>
 #include <QtWidgets/QStatusBar>
+#include <QtWidgets/QVBoxLayout>
+
+#include <algorithm>
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
@@ -26,6 +33,33 @@ namespace pictura {
 namespace {
 
 int g_gateInteractive = -1; // -1: follow the platform
+int g_quiet = 0;             // open ShpSupport::Quiet scopes
+QString g_quietRefusal;      // the last size-limit refusal inside one
+
+const char* const kAllowanceProperty = "shpAllowance";
+const char* const kStageProperty = "shpConfirmedStage";
+
+QString mib(quint64 bytes)
+{
+    return QStringLiteral("%1 MiB").arg(double(bytes) / double(1 << 20), 0, 'f', 0);
+}
+
+QString memory(quint64 bytes)
+{
+    return bytes >= (quint64(1) << 30)
+               ? QStringLiteral("%1 GiB").arg(double(bytes) / double(1 << 30), 0, 'f', 1)
+               : mib(bytes);
+}
+
+// How far over the limit, in whole percent rounded up (1% for anything over).
+int percentOver(const ShpPlan& plan)
+{
+    if (plan.limit == 0 || plan.needed <= plan.limit) {
+        return 0;
+    }
+    return int((plan.needed - plan.limit) * 100 / plan.limit
+               + ((plan.needed - plan.limit) * 100 % plan.limit ? 1 : 0));
+}
 
 QString frameList(const ::rust::Vec<int32_t>& frames)
 {
@@ -65,6 +99,8 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     dock_->hide();
     connect(palette_, &ShpPalettePanel::message, this, &ShpSupport::message);
     connect(frames_, &ShpFramesPanel::pageRequested, this, [this](int frame) { pageTo(frame); });
+    connect(frames_, &ShpFramesPanel::windowSizeRequested, this,
+            [this](int count) { setWindowFrames(count); });
 
     prevKey_ = new QShortcut(QKeySequence(Qt::Key_Comma), frame);
     nextKey_ = new QShortcut(QKeySequence(Qt::Key_Period), frame);
@@ -188,7 +224,7 @@ bool ShpSupport::pageTo(int frame, int span)
     if (!cleanGate(view, true, true)) {
         return false;
     }
-    if (!shp_show_frames(*view, frame, span, 0)) {
+    if (!shp_show_frames(*view, frame, span, allowanceOf(view))) {
         gateMessage_ = shp_last_error();
         message(gateMessage_);
         if (interactive()) {
@@ -204,6 +240,347 @@ bool ShpSupport::pageTo(int frame, int span)
                 .arg(info.first + info.frames - 1)
                 .arg(info.total));
     return true;
+}
+
+// --- The SHP size limit -----------------------------------------------------
+
+ShpSupport::Quiet::Quiet()
+{
+    if (g_quiet++ == 0) {
+        g_quietRefusal.clear();
+    }
+}
+
+ShpSupport::Quiet::~Quiet()
+{
+    --g_quiet;
+}
+
+QString ShpSupport::Quiet::refusal() const
+{
+    return g_quietRefusal;
+}
+
+void ShpSupport::setAllowOverLimit(bool on)
+{
+    if (allowOverLimit_ != on) {
+        allowOverLimit_ = on;
+        emit limitSettingsChanged();
+    }
+}
+
+void ShpSupport::setRemoveCeiling(bool on)
+{
+    if (removeCeiling_ != on) {
+        removeCeiling_ = on;
+        emit limitSettingsChanged();
+    }
+}
+
+QWidget* ShpSupport::advancedPage(QWidget* parent)
+{
+    auto* page = new QWidget(parent);
+    page->setObjectName(QStringLiteral("shpAdvancedPage"));
+    auto* layout = new QVBoxLayout(page);
+    auto* heading = new QLabel(tr("<b>SHP size limit</b>"), page);
+    auto* about = new QLabel(
+        tr("An SHP sprite whose frames would take more than %1 of image memory opens as a "
+           "window of frames, so Kooka does not run this computer out of memory. For a rare "
+           "file that needs more at once, the limit can be lifted here. Every time it is "
+           "used you are asked to confirm, and Kooka still refuses anything the memory "
+           "available now cannot hold. These settings are not saved: they are off again "
+           "the next time Kooka starts.")
+            .arg(mib(shp_size_limit())),
+        page);
+    about->setWordWrap(true);
+    auto* allow = new QCheckBox(tr("Allow SHP files over the size limit (until Kooka closes)"),
+                                page);
+    allow->setObjectName(QStringLiteral("shpAllowOverLimit"));
+    auto* ceiling = new QCheckBox(
+        tr("Remove the 10% ceiling on that allowance (until Kooka closes)"), page);
+    ceiling->setObjectName(QStringLiteral("shpRemoveCeiling"));
+    ceiling->setToolTip(tr("Without this, the allowance goes up to 10% over the limit."));
+    layout->addWidget(heading);
+    layout->addWidget(about);
+    layout->addWidget(allow);
+    layout->addWidget(ceiling);
+    layout->addStretch(1);
+
+    const auto sync = [this, allow, ceiling] {
+        const QSignalBlocker blockAllow(allow);
+        const QSignalBlocker blockCeiling(ceiling);
+        allow->setChecked(allowOverLimit_);
+        ceiling->setChecked(removeCeiling_);
+        ceiling->setEnabled(allowOverLimit_);
+    };
+    sync();
+    connect(this, &ShpSupport::limitSettingsChanged, page, sync);
+    connect(allow, &QCheckBox::toggled, this, [this](bool on) { setAllowOverLimit(on); });
+    connect(ceiling, &QCheckBox::toggled, this, [this](bool on) { setRemoveCeiling(on); });
+    return page;
+}
+
+quint64 ShpSupport::allowanceOf(const PictureView* view)
+{
+    return view ? view->property(kAllowanceProperty).toULongLong() : 0;
+}
+
+void ShpSupport::grant(PictureView* view, quint64 bytes, int stage)
+{
+    if (!view || stage <= 0) {
+        return;
+    }
+    const quint64 allowance = std::max(allowanceOf(view), bytes);
+    view->setProperty(kAllowanceProperty, allowance);
+    view->setProperty(kStageProperty, std::max(view->property(kStageProperty).toInt(), stage));
+    shp_set_open_allowance(*view, allowance);
+}
+
+bool ShpSupport::asksNow() const
+{
+    return g_quiet == 0 && interactive();
+}
+
+bool ShpSupport::refuseLimit()
+{
+    message(limitMessage_);
+    if (g_quiet > 0) {
+        g_quietRefusal = limitMessage_;
+    } else if (asksNow()) {
+        QMessageBox box(QMessageBox::Warning, tr("SHP Size Limit"), limitMessage_,
+                        QMessageBox::Ok, frame_);
+        box.setObjectName(QStringLiteral("shpLimitRefused"));
+        box.exec();
+    }
+    return false;
+}
+
+ShpSupport::Verdict ShpSupport::confirmLimit(const ShpPlan& plan, int confirmedStage,
+                                             const QString& what, const QString& go,
+                                             const QString& alternative)
+{
+    limitMessage_.clear();
+    if (plan.stage <= 0) {
+        return Verdict::Go;
+    }
+    const QString over = tr("%1 needs %2 of image memory, %3% over the %4 SHP size limit.")
+                             .arg(what, mib(plan.needed))
+                             .arg(percentOver(plan))
+                             .arg(mib(plan.limit));
+    if (!allowOverLimit_) {
+        limitMessage_ = over
+            + tr(" To go over it until Kooka closes, turn on \"Allow SHP files over the size "
+                 "limit\" in Edit > Preferences > Advanced.");
+        return Verdict::Refused;
+    }
+    if (plan.stage >= 2 && !removeCeiling_) {
+        limitMessage_ = over
+            + tr(" The allowance goes up to 10% over the limit. To go further until Kooka "
+                 "closes, also turn on \"Remove the 10% ceiling\" in Edit > Preferences > "
+                 "Advanced.");
+        return Verdict::Refused;
+    }
+    if (!plan.floor_ok) {
+        limitMessage_ = over
+            + tr(" Kooka would need about %1 of memory for it and %2 is available now. No "
+                 "setting allows that.")
+                  .arg(memory(plan.estimate), memory(plan.available));
+        return Verdict::Refused;
+    }
+    if (plan.stage <= confirmedStage) {
+        return Verdict::Go;
+    }
+    if (!asksNow()) {
+        limitMessage_ = over
+            + tr(" Going over the limit has to be confirmed in a dialog, so it is refused "
+                 "here.");
+        return Verdict::Refused;
+    }
+    for (int stage = std::max(confirmedStage + 1, 1); stage <= plan.stage; ++stage) {
+        const Verdict verdict = limitDialog(plan, stage, what, go, alternative);
+        if (verdict != Verdict::Go) {
+            limitMessage_ = verdict == Verdict::Cancelled ? over : QString();
+            return verdict;
+        }
+    }
+    return Verdict::Go;
+}
+
+ShpSupport::Verdict ShpSupport::limitDialog(const ShpPlan& plan, int stage, const QString& what,
+                                            const QString& go, const QString& alternative)
+{
+    QDialog dialog(frame_);
+    dialog.setObjectName(stage == 1 ? QStringLiteral("shpLimitDialog")
+                                    : QStringLiteral("shpLimitCeilingDialog"));
+    dialog.setWindowTitle(stage == 1 ? tr("Over the SHP Size Limit")
+                                     : tr("Past the 10% Ceiling"));
+    auto* layout = new QVBoxLayout(&dialog);
+    const QString headline =
+        stage == 1 ? tr("%1 breaks the SHP size limit.").arg(what)
+                   : tr("%1 is %2% over the SHP size limit, past the 10% ceiling.")
+                         .arg(what)
+                         .arg(percentOver(plan));
+    auto* text = new QLabel(&dialog);
+    text->setObjectName(QStringLiteral("shpLimitText"));
+    text->setTextFormat(Qt::PlainText);
+    text->setWordWrap(true);
+    text->setText(
+        headline + QStringLiteral("\n\n")
+        + tr("Image memory needed: %1\nSize limit: %2 (%3% over)\nEstimated memory use: about "
+             "%4\nMemory available now: %5")
+              .arg(mib(plan.needed), mib(plan.limit))
+              .arg(percentOver(plan))
+              .arg(memory(plan.estimate), memory(plan.available))
+        + QStringLiteral("\n\n")
+        + (stage == 1
+               ? tr("The limit is a safety check that keeps Kooka from running this computer "
+                    "out of memory. Going over it applies to this file only.")
+               : tr("This is a second safety check. The memory estimate is measured, not "
+                    "exact, and this far over the limit other programs may slow down or be "
+                    "closed by the system.")));
+    auto* understand = new QCheckBox(
+        stage == 1 ? tr("I understand this switches off a safety check for this file, and Kooka "
+                        "could run this computer out of memory.")
+                   : tr("I understand this goes past the 10% ceiling as well."),
+        &dialog);
+    understand->setObjectName(QStringLiteral("shpLimitUnderstand"));
+    auto* buttons = new QDialogButtonBox(&dialog);
+    QPushButton* goButton = buttons->addButton(go, QDialogButtonBox::AcceptRole);
+    goButton->setObjectName(QStringLiteral("shpLimitGo"));
+    goButton->setEnabled(false);
+    goButton->setAutoDefault(false);
+    QPushButton* altButton = nullptr;
+    if (!alternative.isEmpty()) {
+        altButton = buttons->addButton(alternative, QDialogButtonBox::ActionRole);
+        altButton->setObjectName(QStringLiteral("shpLimitAlternative"));
+        altButton->setAutoDefault(false);
+    }
+    QPushButton* cancel = buttons->addButton(QDialogButtonBox::Cancel);
+    cancel->setObjectName(QStringLiteral("shpLimitCancel"));
+    cancel->setDefault(true);
+    layout->addWidget(text);
+    layout->addWidget(understand);
+    layout->addWidget(buttons);
+    connect(understand, &QCheckBox::toggled, goButton, &QPushButton::setEnabled);
+    QAbstractButton* clicked = nullptr;
+    connect(buttons, &QDialogButtonBox::clicked, &dialog, [&](QAbstractButton* button) {
+        clicked = button;
+        if (button == goButton || (altButton && button == altButton)) {
+            dialog.accept();
+        } else {
+            dialog.reject();
+        }
+    });
+    dialog.exec();
+    if (clicked == goButton && understand->isChecked()) {
+        return Verdict::Go;
+    }
+    if (altButton && clicked == altButton) {
+        return Verdict::Alternative;
+    }
+    return Verdict::Cancelled;
+}
+
+bool ShpSupport::confirmOpen(PictureView* view, const QString& path)
+{
+    limitMessage_.clear();
+    const ShpPlan window = shp_plan_file(path, 0);
+    if (!view || !window.valid) {
+        return true; // not an SHP after all: the decoder answers
+    }
+    const ShpPlan whole =
+        window.count == window.total ? window : shp_plan_file(path, window.total);
+    if (whole.stage <= 0) {
+        return true; // within the limit: never asks
+    }
+    const QString name = QFileInfo(path).fileName();
+    if (window.stage <= 0) {
+        // A window fits: that is how it opens, unless the user lifts the limit
+        // for the whole sprite.
+        const QString windowNote =
+            tr("%1 is over the %2 SHP size limit, so it opens %3 frames at a time.")
+                .arg(name, mib(whole.limit))
+                .arg(window.count);
+        if (!allowOverLimit_) {
+            message(windowNote);
+            return true;
+        }
+        switch (confirmLimit(whole, 0, tr("Opening all %1 frames of %2").arg(whole.total).arg(name),
+                             tr("Open Whole"), tr("Open as Window"))) {
+        case Verdict::Go:
+            grant(view, whole.needed, whole.stage);
+            return true;
+        case Verdict::Alternative:
+            message(windowNote);
+            return true;
+        case Verdict::Refused:
+            message(windowNote + QLatin1Char(' ') + limitMessage_);
+            return true;
+        case Verdict::Cancelled:
+            limitMessage_ = tr("Opening %1 was cancelled.").arg(name);
+            return false;
+        }
+    }
+    // Not even one frame fits within the limit.
+    switch (confirmLimit(window, 0, tr("Opening %1").arg(name), tr("Open"), QString())) {
+    case Verdict::Go:
+        grant(view, window.needed, window.stage);
+        return true;
+    case Verdict::Refused:
+        return refuseLimit();
+    default:
+        limitMessage_ = tr("Opening %1 was cancelled.").arg(name);
+        return false;
+    }
+}
+
+bool ShpSupport::allowSize(PictureView* view, int width, int height)
+{
+    limitMessage_.clear();
+    if (!view || !shp_info(*view).valid) {
+        return true;
+    }
+    const ShpPlan plan = shp_plan_size(*view, width, height);
+    if (!plan.valid || plan.stage <= 0) {
+        return true;
+    }
+    switch (confirmLimit(plan, view->property(kStageProperty).toInt(),
+                         tr("Resizing to %1 x %2").arg(width).arg(height), tr("Resize"),
+                         QString())) {
+    case Verdict::Go:
+        grant(view, plan.needed, plan.stage);
+        return true;
+    case Verdict::Refused:
+        return refuseLimit();
+    default:
+        return false;
+    }
+}
+
+bool ShpSupport::setWindowFrames(int count)
+{
+    limitMessage_.clear();
+    PictureView* view = view_;
+    if (!view || !shp_info(*view).valid || count < 1) {
+        return false;
+    }
+    const int frame = std::max(frames_->current(), shp_info(*view).first);
+    const ShpPlan plan = shp_plan_window(*view, frame, count);
+    if (!plan.valid) {
+        return false;
+    }
+    switch (confirmLimit(plan, view->property(kStageProperty).toInt(),
+                         tr("Loading %1 frames").arg(plan.count), tr("Load Frames"),
+                         QString())) {
+    case Verdict::Go:
+        grant(view, plan.needed, plan.stage);
+        break;
+    case Verdict::Refused:
+        return refuseLimit();
+    default:
+        return false;
+    }
+    return pageTo(frame, count);
 }
 
 bool ShpSupport::cleanGate(PictureView* view, bool dialogs, bool paging)

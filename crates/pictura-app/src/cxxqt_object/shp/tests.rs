@@ -488,7 +488,7 @@ fn a_huge_sprite_plans_a_window_from_its_header() {
     }
     let whole = Layout::new(2052, 2816, 136, sheet::DEFAULT_GUTTER).expect("layout");
     assert!(whole.sheet_bytes() > 3 << 30);
-    let plan = open_plan(&bytes, &roomy()).expect("plans");
+    let plan = open_plan(&bytes, &roomy(), 0).expect("plans");
     assert_eq!((plan.first, plan.count, plan.total), (0, 8, 136));
     assert_eq!(plan.needed, 16423 * 2816 * 4);
     assert_eq!(plan.stage, 0);
@@ -498,7 +498,7 @@ fn a_huge_sprite_plans_a_window_from_its_header() {
         limit: WINDOW_BUDGET,
         available: Some(100 << 20),
     };
-    let plan = open_plan(&bytes, &short).expect("plans");
+    let plan = open_plan(&bytes, &short, 0).expect("plans");
     assert_eq!(plan.count, 1);
     assert!(!plan.floor_ok);
     assert!(short.admit(plan.needed, u64::MAX).is_err());

@@ -501,3 +501,46 @@ Phase 2, the frame window (paged frames):
   space pointer events and keys need the admin tier, which the CLI does
   not grant. The app e2e covers the window open, an unchanged save, an
   in-window one-pixel edit and peak RSS.
+
+The size limit and its allowance (Preferences > Advanced):
+
+- **The SHP size limit is the window budget, 256 MiB of sheet.** Opening a
+  sprite whose whole sheet is over it is not refused: it opens as a window
+  (with a status-bar note). What the limit gates is holding more than it at
+  once: a whole over-limit sprite, a window of one frame that is itself
+  over it, a bigger window ("Frames loaded" in the Frames panel), Image
+  Size and Canvas Size, and (when they land) frame inserts, which must call
+  `ShpSupport::allowSize` too. No real SHP frame is over the limit by
+  itself (the format caps a side at 4096, 64 MiB of sheet), so in practice
+  the open prompt is "Open Whole / Open as Window / Cancel" for sheets up
+  to 10% over. Of the owner's 21 paged files, the 14 that are not
+  `sppnuke.shp` are 0.4-34% over (3 of them within 10%); `sppnuke.shp` is about
+  1,100% over and its whole-sheet estimate (60 GB) never passes the floor.
+- **Two settings on a new Advanced page, never saved**: "Allow SHP files
+  over the size limit (until Kooka closes)" and "Remove the 10% ceiling on
+  that allowance (until Kooka closes)", enabled only while the first is
+  on. They are members of `ShpSupport` (one per main window, one main
+  window per process), so a restart always starts with both off.
+- **Stages.** Within the limit nothing ever asks. Up to 10% over: refused
+  (naming the setting) unless the first setting is on; then a prompt
+  showing the image memory needed, the limit, the percent over, the
+  estimated footprint and `MemAvailable` now, with an unticked "I
+  understand this switches off a safety check for this file, and Kooka
+  could run this computer out of memory." box; the go button stays
+  disabled until it is ticked, and Cancel is the default. Past 10%:
+  refused unless the second setting is on too; then the same prompt and a
+  second, separate one with its own box. A view remembers the stage it
+  confirmed and the bytes it was granted: paging windows of that size
+  never asks again, a growth into a higher stage asks for that stage only
+  (the second prompt again past 10%).
+- **The floor no setting removes**: the estimate (`needed x
+  FOOTPRINT_FACTOR`, 20) must fit `MemAvailable` now, checked in the shell
+  before asking and again in Rust (`Limits::admit`) when the window is
+  built.
+- **No dialogs without a person.** Offscreen, and inside any control
+  request (`ShpSupport::Quiet` in `ControlServer::dispatch`), a step that
+  needs confirming is refused with the reason; a control request answers
+  `refused` with it. Nothing is ever confirmed automatically.
+- **Tests inject the limit and the memory** (`shp_set_test_limits`): a
+  6x5 frame is 120 bytes, so 110 bytes is 9% over and 100 bytes 20% over;
+  nothing large is allocated.

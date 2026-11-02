@@ -23,6 +23,9 @@ effect art directly.
   136-frame 2052x2816 superweapon) open as a window of frames: the Frames
   panel lists them all, and clicking or stepping to another frame loads it,
   keeping your edits (loading another window starts a new undo history).
+  For a rare sprite that must be held whole anyway, Edit > Preferences >
+  Advanced can lift the size limit until Kooka closes, with a confirmation
+  each time and a hard stop at the memory actually available.
   Checked against 4,819 real SHPs: every valid one saves back
   byte-identical. Next: onion skin, frame
   add/remove/reorder, playback preview, shadow tools, house-colour preview

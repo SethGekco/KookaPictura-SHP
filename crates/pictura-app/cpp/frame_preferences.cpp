@@ -5,6 +5,7 @@
 #include "agent_control.h"
 #include "api/type_api.h"
 #include "preferences_agent_page.h"
+#include "shp_support.h"
 
 namespace pictura {
 
@@ -54,6 +55,10 @@ void PicturaMainWindow::showPreferences(const QString& page)
         if (auto* agent = findChild<AgentControl*>()) {
             preferencesDialog_->addPage(PreferencesDialog::kAgentControl,
                                         new AgentControlPage(agent));
+        }
+        // KookaPictura-SHP fork: Advanced (the SHP size limit, until Kooka closes).
+        if (auto* shp = ShpSupport::of(this)) {
+            preferencesDialog_->addPage(tr("Advanced"), shp->advancedPage(preferencesDialog_));
         }
         connectRecoveryPreferences(preferencesDialog_);
         connectGuidePreferences(preferencesDialog_);

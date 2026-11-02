@@ -169,7 +169,7 @@ pub(in crate::cxxqt_object) fn open_sheet(
 ) -> Option<OpenedDocument> {
     progress(30, "Decoding frames");
     // Planned from the file header before any frame is decoded.
-    let plan = open_plan(bytes, limits)?;
+    let plan = open_plan(bytes, limits, allowance)?;
     let (width, height, total, count) = (
         plan.width as usize,
         plan.height as usize,
@@ -673,14 +673,29 @@ pub(super) fn shp_rebind_palette(view: Pin<&mut PictureView>, path: &QString) ->
     }) >= 0
 }
 
-pub(super) fn shp_plan_file(path: &QString) -> ShpPlan {
+pub(super) fn shp_plan_file(path: &QString, count: i32) -> ShpPlan {
     let path = path.to_string();
     let mut head = [0u8; pictura_shp::HEADER];
     let read = std::fs::File::open(&path).and_then(|mut f| f.read_exact(&mut head));
     if read.is_err() || !shp_sniff_file(&QString::from(path.as_str())) {
         return invalid_plan();
     }
-    open_plan(&head, &Limits::current()).unwrap_or_else(invalid_plan)
+    let limits = Limits::current();
+    let Some(default) = open_plan(&head, &limits, 0) else {
+        return invalid_plan();
+    };
+    match usize::try_from(count) {
+        Ok(count) if count > 0 => plan(
+            default.width as usize,
+            default.height as usize,
+            default.total as usize,
+            0,
+            count,
+            &limits,
+        )
+        .unwrap_or_else(invalid_plan),
+        _ => default,
+    }
 }
 
 pub(super) fn shp_plan_window(view: &PictureView, frame: i32, count: i32) -> ShpPlan {
@@ -796,6 +811,10 @@ pub(super) fn shp_set_test_limits(limit: u64, available: u64) {
 
 pub(super) fn shp_footprint_factor() -> u64 {
     FOOTPRINT_FACTOR
+}
+
+pub(super) fn shp_size_limit() -> u64 {
+    Limits::current().limit
 }
 
 pub(super) fn shp_last_error() -> QString {

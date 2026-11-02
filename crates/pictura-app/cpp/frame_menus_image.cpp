@@ -3,6 +3,7 @@
 #include "api/selection_api.h"
 #include "canvas_size_dialog.h"
 #include "image_size_dialog.h"
+#include "shp_support.h"
 
 #include "pictura_app/src/cxxqt_object/image_adjust/image_mode.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/image_adjust/image_ops.cxxqt.h"
@@ -75,6 +76,10 @@ void PicturaMainWindow::wireImageMenu()
     // a shrunken image stays centred where the whole of it was.
     const auto applyImageSize = [this](PictureView* view, const QString& resample, int width,
                                        int height, double ppi, bool perCm) {
+        // KookaPictura-SHP fork: an SHP may not grow past its size limit unasked.
+        if (ShpSupport* shp = ShpSupport::of(this); shp && !shp->allowSize(view, width, height)) {
+            return false;
+        }
         const int index = indexOfView(view);
         const QSizeF before(view->document_width(), view->document_height());
         QList<QPair<QPointer<ImageView>, QPointF>> centres;
@@ -161,6 +166,11 @@ void PicturaMainWindow::wireImageMenu()
         CanvasSizeDialog dialog(view, tools_->foreground(), tools_->background(), this);
         if (runDialog(dialog, this) == QDialog::Accepted) {
             const uint fill = dialog.extensionColor().rgb() & 0xffffffu;
+            // KookaPictura-SHP fork: the SHP size limit.
+            if (ShpSupport* shp = ShpSupport::of(this);
+                shp && !shp->allowSize(view, dialog.resultWidth(), dialog.resultHeight())) {
+                return;
+            }
             if (!canvas_size_apply(*view, dialog.anchorName(), dialog.resultWidth(),
                                    dialog.resultHeight(), fill)) {
                 return;
@@ -176,6 +186,13 @@ void PicturaMainWindow::wireImageMenu()
     registry_->setExecutor(canvasSize, [this](const CommandParams& params) {
         PictureView* view = activeView();
         if (!view || !view->has_document()) {
+            return false;
+        }
+        // KookaPictura-SHP fork: the SHP size limit.
+        if (ShpSupport* shp = ShpSupport::of(this);
+            shp
+            && !shp->allowSize(view, params.values.value(QStringLiteral("width")).toInt(),
+                               params.values.value(QStringLiteral("height")).toInt())) {
             return false;
         }
         const bool applied =

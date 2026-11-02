@@ -12,6 +12,7 @@
 class QCheckBox;
 class QLabel;
 class QListWidget;
+class QSpinBox;
 class QToolButton;
 
 namespace pictura {
@@ -56,9 +57,14 @@ public:
     void setSelectsCell(bool on);
     bool gridVisible() const;
 
+    // "Frames loaded": shown for a paged SHP, holding its window size.
+    QSpinBox* windowFrames() const { return windowFrames_; }
+
 signals:
     // File frame `frame` is off the sheet: its window should be shown.
     void pageRequested(int frame);
+    // The user asked for windows of `count` frames.
+    void windowSizeRequested(int count);
 
 private:
     void rebuild();
@@ -82,6 +88,8 @@ private:
     QToolButton* next_ = nullptr;
     QCheckBox* selectCell_ = nullptr;
     QCheckBox* grid_ = nullptr;
+    QLabel* windowLabel_ = nullptr;
+    QSpinBox* windowFrames_ = nullptr;
 };
 
 } // namespace pictura

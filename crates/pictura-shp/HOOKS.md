@@ -20,12 +20,16 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/cpp/tests/CMakeLists.txt` | `tst_shp` in the suite list |
 | `crates/pictura-app/cpp/frame_build.cpp` | `registerPanel(ShpSupport::install(this, colorState_)->dock(), Qt::BottomDockWidgetArea)` and its include |
 | `crates/pictura-app/cpp/frame_session.cpp` | `retargetDock` calls `ShpSupport::setView`, `refreshDock` calls `ShpSupport::refresh`; one include |
-| `crates/pictura-app/cpp/frame_open.cpp` | `startOpenImagePath`: when `shp_sniff_file(path)`, `shp_set_open_palette(*view, resolveShpPalette(path))` before `open_image_start`; two includes |
+| `crates/pictura-app/cpp/frame_open.cpp` | `startOpenImagePath`: when `shp_sniff_file(path)`, `ShpSupport::confirmOpen(view, path)` (the size limit, header only) before `beginOpenCursor`, deleting the view and returning 0 when it refuses, and `shp_set_open_palette(*view, resolveShpPalette(path))` before `open_image_start`; three includes |
 | `crates/pictura-app/cpp/keyboard_shortcuts_dialog.cpp` | `,` and `.` (frame stepping) added to `workspaceKeys()`, so the shortcut editor never hands them to a command |
 | `crates/pictura-app/cpp/image_view.h` | the `ShpGrid` struct, `setShpGrid`/`shpGrid`, `paintShpGrid` and the `shpGrid_` member |
 | `crates/pictura-app/cpp/image_view.cpp` | `paintEvent` calls `paintShpGrid(painter)` before the guides |
 | `crates/pictura-app/cpp/dialogs.{h,cpp}` | `shp` in `isKnownImageSuffix`; "Westwood SHP (TS/RA2) (*.SHP)" as save filter 8 (before All Formats) and in the open filters, `*.SHP` in both All Formats; `defaultSuffixForFilter(8)`; `defaultSaveFilterIndex` returns 8 for an SHP sheet; `savePathNeedsFormatDialog` sends an `.shp` path to Save As unless the document is an SHP sheet; two includes; doc comments |
 | `crates/pictura-app/cpp/frame.cpp` | `saveActiveAs`: an `.shp` path runs `ShpSupport::saveGate` first; one include |
+| `crates/pictura-app/cpp/frame_preferences.cpp` | `showPreferences`: `addPage(tr("Advanced"), ShpSupport::advancedPage(...))` (the SHP size-limit settings); one include |
+| `crates/pictura-app/cpp/frame_menus_image.cpp` | `applyImageSize` (Image Size handler and executor) and the Canvas Size handler and executor call `ShpSupport::allowSize(view, width, height)` first; one include |
+| `crates/pictura-app/cpp/control_server.cpp` | `dispatch`: a `ShpSupport::Quiet` scope around `route` (no size-limit dialogs), and a size-limit refusal answers `refused` with its reason; one include |
+| `crates/pictura-app/cpp/selftest.cpp` | `prefs_pages`: the expected page list ends with "Advanced" |
 | `crates/pictura-app/cpp/frame_open.cpp` | `saveRunsOnWorker`: `shp` saves in place (the worker writes only PSD/PSB) |
 | `crates/pictura-app/cpp/control_server_documents.cpp` | `save`/`save_as` of an `.shp` path run the gate without dialogs and answer `refused` with its reason, or `io_error` with the writer's message; one include |
 | `crates/pictura-app/cpp/tests/tst_open_save.cpp` | `unknownSuffixNeverGetsPsdBytes`: `.shp` is writable now (the PNG-content sprite is still refused) |

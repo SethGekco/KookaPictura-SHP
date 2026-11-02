@@ -172,8 +172,13 @@ pub(in crate::cxxqt_object) fn plan(
 }
 
 /// The window an SHP opens with: from frame 0, as many frames as the window
-/// budget holds. Header only; nothing is decoded.
-pub(in crate::cxxqt_object) fn open_plan(bytes: &[u8], limits: &Limits) -> Option<ShpPlan> {
+/// budget holds, or as `allowance` (bytes of sheet the user agreed to past
+/// the limit) holds when that is more. Header only; nothing is decoded.
+pub(in crate::cxxqt_object) fn open_plan(
+    bytes: &[u8],
+    limits: &Limits,
+    allowance: u64,
+) -> Option<ShpPlan> {
     let field = |at: usize| {
         Some(usize::from(u16::from_le_bytes([
             *bytes.get(at)?,
@@ -184,7 +189,8 @@ pub(in crate::cxxqt_object) fn open_plan(bytes: &[u8], limits: &Limits) -> Optio
     if width == 0 || height == 0 || total == 0 {
         return None;
     }
-    let count = window_frames(width, height, total, DEFAULT_GUTTER, limits.window_budget());
+    let budget = limits.window_budget().max(allowance);
+    let count = window_frames(width, height, total, DEFAULT_GUTTER, budget);
     plan(width, height, total, 0, count, limits)
 }
 

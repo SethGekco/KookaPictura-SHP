@@ -12,6 +12,7 @@
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QListWidget>
+#include <QtWidgets/QSpinBox>
 #include <QtWidgets/QToolButton>
 #include <QtWidgets/QVBoxLayout>
 
@@ -54,6 +55,18 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     row->addWidget(prev_);
     row->addWidget(next_);
     row->addWidget(label_, 1);
+    windowLabel_ = new QLabel(tr("Frames loaded:"), this);
+    windowFrames_ = new QSpinBox(this);
+    windowFrames_->setObjectName(QStringLiteral("shpWindowFrames"));
+    windowFrames_->setKeyboardTracking(false);
+    windowFrames_->setToolTip(
+        tr("How many frames of this sprite are held at once. More than fit the SHP size "
+           "limit needs Edit > Preferences > Advanced."));
+    windowLabel_->setBuddy(windowFrames_);
+    windowLabel_->hide();
+    windowFrames_->hide();
+    row->addWidget(windowLabel_);
+    row->addWidget(windowFrames_);
     row->addWidget(selectCell_);
     row->addWidget(grid_);
     layout->addLayout(row);
@@ -75,6 +88,13 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     connect(prev_, &QToolButton::clicked, this, [this] { step(-1); });
     connect(next_, &QToolButton::clicked, this, [this] { step(1); });
     connect(grid_, &QCheckBox::toggled, this, [this] { syncGrid(); });
+    connect(windowFrames_, &QSpinBox::valueChanged, this, [this](int count) {
+        if (view_ && count != shp_info(*view_).span) {
+            emit windowSizeRequested(count);
+            // Refused or cancelled: show the window size there is.
+            refresh();
+        }
+    });
     refresh();
 }
 
@@ -159,6 +179,15 @@ void ShpFramesPanel::refresh()
             rebuild();
         }
         updateLabel(info);
+    }
+    const ShpInfo info = shp ? shp_info(*view_) : ShpInfo{};
+    const bool paged = shp && info.frames < info.total;
+    windowLabel_->setVisible(paged);
+    windowFrames_->setVisible(paged);
+    if (paged) {
+        const QSignalBlocker block(windowFrames_);
+        windowFrames_->setRange(1, info.total);
+        windowFrames_->setValue(info.span);
     }
     prev_->setEnabled(shp);
     next_->setEnabled(shp);

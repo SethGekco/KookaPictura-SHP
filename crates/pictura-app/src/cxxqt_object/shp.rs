@@ -159,9 +159,11 @@ pub mod ffi {
         /// thread failed.
         fn shp_last_error() -> QString;
 
-        /// The window `path` would open with, from its header (nothing is
-        /// decoded); `valid` is false for a file that is not an SHP.
-        fn shp_plan_file(path: &QString) -> ShpPlan;
+        /// The window `path` would open with (`count` 0), or its first
+        /// `count` frames (the whole file when `count` is its frame count),
+        /// from its header (nothing is decoded); `valid` is false for a file
+        /// that is not an SHP.
+        fn shp_plan_file(path: &QString, count: i32) -> ShpPlan;
 
         /// The window of `count` frames that holds `frame` (windows are
         /// aligned to multiples of `count`; 0 keeps the document's size).
@@ -201,5 +203,8 @@ pub mod ffi {
 
         /// The measured real footprint per byte of sheet.
         fn shp_footprint_factor() -> u64;
+
+        /// The SHP size limit in bytes of sheet.
+        fn shp_size_limit() -> u64;
     }
 }

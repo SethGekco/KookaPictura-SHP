@@ -5,6 +5,7 @@
 #include <QtTest/QtTest>
 
 #include "api/document_api.h"
+#include "commands.h"
 #include "dialogs.h"
 #include "frame.h"
 #include "image_view.h"
@@ -16,13 +17,18 @@
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
 
+#include <QtCore/QDir>
 #include <QtCore/QFile>
+#include <QtCore/QSettings>
 #include <QtCore/QTemporaryDir>
 #include <QtCore/QTimer>
 #include <QtWidgets/QApplication>
+#include <QtWidgets/QCheckBox>
+#include <QtWidgets/QDialog>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
+#include <QtWidgets/QSpinBox>
 #include <QtWidgets/QStatusBar>
 
 #include "qt_test_support.h"
@@ -136,6 +142,68 @@ private:
     bool seen_ = false;
 };
 
+// Answers the size-limit dialogs as they appear, one action per dialog in
+// order: "go" ticks the box and clicks the go button, "alternative" and
+// "cancel" click theirs. Records which dialogs came up and whether go was
+// disabled until the box was ticked. A refusal message box is closed.
+class LimitClicker {
+public:
+    explicit LimitClicker(QStringList actions)
+        : actions_(std::move(actions))
+    {
+        QObject::connect(&poll_, &QTimer::timeout, [this] {
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                // Marked on the widget: a later dialog can reuse an address.
+                if (!widget->isVisible() || widget->property("shpTestHandled").toBool()) {
+                    continue;
+                }
+                if (widget->objectName() == QLatin1String("shpLimitRefused")) {
+                    widget->setProperty("shpTestHandled", true);
+                    refused_ = true;
+                    if (auto* box = qobject_cast<QMessageBox*>(widget)) {
+                        box->button(QMessageBox::Ok)->click();
+                    }
+                    continue;
+                }
+                auto* dialog = qobject_cast<QDialog*>(widget);
+                if (!dialog || !dialog->objectName().startsWith(QLatin1String("shpLimit"))) {
+                    continue;
+                }
+                widget->setProperty("shpTestHandled", true);
+                seen_ << dialog->objectName();
+                auto* go = dialog->findChild<QPushButton*>(QStringLiteral("shpLimitGo"));
+                auto* box = dialog->findChild<QCheckBox*>(QStringLiteral("shpLimitUnderstand"));
+                gatedByBox_ = gatedByBox_ && go && box && !go->isEnabled() && !box->isChecked();
+                const QString action = actions_.isEmpty() ? QStringLiteral("cancel")
+                                                          : actions_.takeFirst();
+                if (action == QLatin1String("go")) {
+                    box->setChecked(true);
+                    gatedByBox_ = gatedByBox_ && go->isEnabled();
+                    go->click();
+                } else if (action == QLatin1String("alternative")) {
+                    dialog->findChild<QPushButton*>(QStringLiteral("shpLimitAlternative"))
+                        ->click();
+                } else {
+                    dialog->findChild<QPushButton*>(QStringLiteral("shpLimitCancel"))->click();
+                }
+            }
+        });
+        poll_.start(20);
+    }
+    QStringList seen() const { return seen_; }
+    bool refused() const { return refused_; }
+    // Every dialog had go disabled and the box unticked when it appeared,
+    // and go enabled once the box was ticked.
+    bool gatedByBox() const { return gatedByBox_ && !seen_.isEmpty(); }
+
+private:
+    QStringList actions_;
+    QTimer poll_;
+    QStringList seen_;
+    bool refused_ = false;
+    bool gatedByBox_ = true;
+};
+
 } // namespace
 
 class ShpTest : public QObject {
@@ -157,6 +225,17 @@ private slots:
     void aPagedSpriteListsEveryFrameAndPages();
     void anEditSurvivesPagingAwayAndBack();
     void pagingRefusesOffPalettePixelsWithoutDialogs();
+    void overTheLimitIsRefusedWithoutTheSetting();
+    void withinTenPercentOpenWaitsForTheCheckbox();
+    void pastTenPercentIsRefusedWithoutTheCeilingSetting();
+    void pastTenPercentAsksTwiceWithTheCeilingSetting();
+    void theFloorHoldsWhateverTheSettings();
+    void limitSettingsAreNotKept();
+    void withoutDialogsWhatNeedsConfirmingIsRefused();
+    void underTheLimitNeverAsks();
+    void aWholeSheetOverTheLimitOffersTheWindow();
+    void growingPastTheLimitAsksAgainPerStage();
+    void aBiggerWindowNeedsTheAllowance();
 
 private:
     pictura::PictureView* open();
@@ -184,6 +263,10 @@ void ShpTest::init()
 void ShpTest::cleanup()
 {
     pictura::ShpSupport::setGateInteractive(-1);
+    if (support_) {
+        support_->setAllowOverLimit(false);
+        support_->setRemoveCeiling(false);
+    }
     pictura::shp_set_test_limits(0, 0);
     window_.reset();
     pictura::forgetFolderPalette(shp_);
@@ -473,6 +556,286 @@ void ShpTest::pagingRefusesOffPalettePixelsWithoutDialogs()
     QVERIFY(support_->lastGateMessage().contains(QStringLiteral("palette")));
     QCOMPARE(pictura::shp_info(*view).first, 0);
     QVERIFY(view->can_undo());
+}
+
+// The size limit. One 6x5 frame is 120 bytes of sheet: a 110-byte limit is
+// 9% over (within the 10% allowance), a 100-byte one 20% over (past it).
+// The whole 10-frame sheet is 27 x 17 x 4 = 1836 bytes.
+constexpr quint64 kWithinTen = 110;
+constexpr quint64 kPastTen = 100;
+
+void ShpTest::overTheLimitIsRefusedWithoutTheSetting()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::shp_set_test_limits(kWithinTen, 0);
+    LimitClicker clicker({QStringLiteral("go")});
+    QVERIFY(!window_->openDocumentAtPath(shp_));
+    QCOMPARE(window_->documentCount(), 0);
+    QVERIFY(clicker.seen().isEmpty());
+    QVERIFY(clicker.refused());
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("Preferences > Advanced")));
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("over the size limit")));
+}
+
+void ShpTest::withinTenPercentOpenWaitsForTheCheckbox()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::shp_set_test_limits(kWithinTen, 0);
+    support_->setAllowOverLimit(true);
+    {
+        LimitClicker cancel({QStringLiteral("cancel")});
+        QVERIFY(!window_->openDocumentAtPath(shp_));
+        QCOMPARE(cancel.seen(), QStringList{QStringLiteral("shpLimitDialog")});
+        QCOMPARE(window_->documentCount(), 0);
+    }
+    LimitClicker go({QStringLiteral("go")});
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QCOMPARE(go.seen(), QStringList{QStringLiteral("shpLimitDialog")});
+    QVERIFY(go.gatedByBox());
+    const pictura::ShpInfo info = pictura::shp_info(*view);
+    QCOMPARE(info.frames, 1);
+    QCOMPARE(info.total, kFrames);
+    QCOMPARE(pictura::ShpSupport::allowanceOf(view), quint64(kW * kH * 4));
+    // The allowance holds for the file: paging needs no new prompt.
+    QVERIFY(support_->pageTo(7));
+    QCOMPARE(pictura::shp_info(*view).first, 7);
+    QCOMPARE(go.seen().size(), 1);
+}
+
+void ShpTest::pastTenPercentIsRefusedWithoutTheCeilingSetting()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::shp_set_test_limits(kPastTen, 0);
+    support_->setAllowOverLimit(true);
+    LimitClicker clicker({QStringLiteral("go"), QStringLiteral("go")});
+    QVERIFY(!window_->openDocumentAtPath(shp_));
+    QVERIFY(clicker.seen().isEmpty());
+    QVERIFY(clicker.refused());
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("20% over")));
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("Remove the 10% ceiling")));
+}
+
+void ShpTest::pastTenPercentAsksTwiceWithTheCeilingSetting()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::shp_set_test_limits(kPastTen, 0);
+    support_->setAllowOverLimit(true);
+    support_->setRemoveCeiling(true);
+    {
+        LimitClicker second({QStringLiteral("go"), QStringLiteral("cancel")});
+        QVERIFY(!window_->openDocumentAtPath(shp_));
+        QCOMPARE(second.seen(), (QStringList{QStringLiteral("shpLimitDialog"),
+                                             QStringLiteral("shpLimitCeilingDialog")}));
+        QCOMPARE(window_->documentCount(), 0);
+    }
+    LimitClicker both({QStringLiteral("go"), QStringLiteral("go")});
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QCOMPARE(both.seen(), (QStringList{QStringLiteral("shpLimitDialog"),
+                                       QStringLiteral("shpLimitCeilingDialog")}));
+    QVERIFY(both.gatedByBox());
+    QCOMPARE(pictura::shp_info(*view).frames, 1);
+}
+
+void ShpTest::theFloorHoldsWhateverTheSettings()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    // The estimate for one frame is 120 x the factor; one byte less is free.
+    pictura::shp_set_test_limits(kWithinTen,
+                                 kW * kH * 4 * pictura::shp_footprint_factor() - 1);
+    support_->setAllowOverLimit(true);
+    support_->setRemoveCeiling(true);
+    LimitClicker clicker({QStringLiteral("go"), QStringLiteral("go")});
+    QVERIFY(!window_->openDocumentAtPath(shp_));
+    QVERIFY(clicker.seen().isEmpty());
+    QVERIFY(clicker.refused());
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("available now")));
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("No setting")));
+}
+
+void ShpTest::limitSettingsAreNotKept()
+{
+    QWidget host;
+    QWidget* page = support_->advancedPage(&host);
+    auto* allow = page->findChild<QCheckBox*>(QStringLiteral("shpAllowOverLimit"));
+    auto* ceiling = page->findChild<QCheckBox*>(QStringLiteral("shpRemoveCeiling"));
+    QVERIFY(allow && ceiling);
+    QVERIFY(!allow->isChecked());
+    QVERIFY(!ceiling->isChecked());
+    QVERIFY(!ceiling->isEnabled());
+    allow->setChecked(true);
+    QVERIFY(support_->allowOverLimit());
+    QVERIFY(ceiling->isEnabled());
+    ceiling->setChecked(true);
+    QVERIFY(support_->removeCeiling());
+
+    // Kooka restarts: a new main window starts with both off, and nothing
+    // was written to the settings store or the state folder.
+    window_.reset();
+    window_ = pictura::test::makeMainWindow();
+    support_ = pictura::ShpSupport::of(window_.get());
+    QVERIFY(support_);
+    QVERIFY(!support_->allowOverLimit());
+    QVERIFY(!support_->removeCeiling());
+    QSettings settings;
+    for (const QString& key : settings.allKeys()) {
+        QVERIFY2(!key.contains(QStringLiteral("Limit"), Qt::CaseInsensitive)
+                     && !key.contains(QStringLiteral("Ceiling"), Qt::CaseInsensitive),
+                 qPrintable(key));
+    }
+    QFile ini(QDir(qEnvironmentVariable("XDG_STATE_HOME"))
+                  .filePath(QStringLiteral("kooka-pictura/shp.ini")));
+    if (ini.open(QIODevice::ReadOnly)) {
+        const QByteArray text = ini.readAll();
+        QVERIFY(!text.contains("Limit") && !text.contains("Ceiling"));
+    }
+}
+
+void ShpTest::withoutDialogsWhatNeedsConfirmingIsRefused()
+{
+    pictura::shp_set_test_limits(kWithinTen, 0);
+    support_->setAllowOverLimit(true);
+    LimitClicker clicker({QStringLiteral("go")});
+    // Offscreen: refused with the reason, never confirmed.
+    pictura::ShpSupport::setGateInteractive(0);
+    QVERIFY(!window_->openDocumentAtPath(shp_));
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("confirmed in a dialog")));
+    // A control request, even on an interactive platform: the same, and the
+    // request learns why.
+    pictura::ShpSupport::setGateInteractive(1);
+    {
+        const pictura::ShpSupport::Quiet quiet;
+        QVERIFY(!window_->openDocumentAtPath(shp_));
+        QVERIFY(quiet.refusal().contains(QStringLiteral("confirmed in a dialog")));
+    }
+    QVERIFY(clicker.seen().isEmpty());
+    QVERIFY(!clicker.refused());
+    QCOMPARE(window_->documentCount(), 0);
+}
+
+void ShpTest::underTheLimitNeverAsks()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    support_->setAllowOverLimit(true);
+    LimitClicker clicker({});
+    QVERIFY(open());
+    QCOMPARE(pictura::shp_info(*window_->viewAt(0)).frames, kFrames);
+    // Over the limit, but the whole sheet is past the ceiling: it opens as a
+    // window, without asking.
+    pictura::shp_set_test_limits(kPagedLimit, 0);
+    QVERIFY(window_->openDocumentAtPath(shp_));
+    QCOMPARE(window_->documentCount(), 2);
+    QCOMPARE(pictura::shp_info(*window_->activeView()).frames, 4);
+    QVERIFY(clicker.seen().isEmpty());
+    QVERIFY(!clicker.refused());
+}
+
+void ShpTest::aWholeSheetOverTheLimitOffersTheWindow()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    // 1836 bytes is 8% over 1700.
+    pictura::shp_set_test_limits(1700, 0);
+    support_->setAllowOverLimit(true);
+    {
+        LimitClicker window({QStringLiteral("alternative")});
+        QVERIFY(window_->openDocumentAtPath(shp_));
+        QCOMPARE(window.seen(), QStringList{QStringLiteral("shpLimitDialog")});
+        const pictura::ShpInfo info = pictura::shp_info(*window_->activeView());
+        QVERIFY(info.frames < kFrames);
+        QCOMPARE(pictura::ShpSupport::allowanceOf(window_->activeView()), quint64(0));
+    }
+    LimitClicker whole({QStringLiteral("go")});
+    QVERIFY(window_->openDocumentAtPath(shp_));
+    QCOMPARE(whole.seen(), QStringList{QStringLiteral("shpLimitDialog")});
+    pictura::PictureView* view = window_->activeView();
+    QCOMPARE(pictura::shp_info(*view).frames, kFrames);
+    QCOMPARE(view->document_width(), 4 * kW + 3);
+    const QString out = dir_.filePath(QStringLiteral("whole.shp"));
+    QVERIFY(window_->saveActiveAs(out));
+    QCOMPARE(readFile(out), sprite());
+}
+
+void ShpTest::growingPastTheLimitAsksAgainPerStage()
+{
+    // The whole 1836-byte sheet fits 2000. 27 x 19 x 4 = 2052 is 3% over it,
+    // 27 x 21 x 4 = 2268 is 14% over.
+    pictura::shp_set_test_limits(2000, 0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    const QString canvasSize =
+        pictura::commandIdForPath({QStringLiteral("Image"), QStringLiteral("Canvas Size…")});
+    const auto grow = [&](int height) {
+        pictura::CommandParams params;
+        params.values.insert(QStringLiteral("width"), 4 * kW + 3);
+        params.values.insert(QStringLiteral("height"), height);
+        params.values.insert(QStringLiteral("anchor"), QStringLiteral("top-left"));
+        params.values.insert(QStringLiteral("color"), 0.0);
+        return window_->registry()->executeRecorded(canvasSize, params);
+    };
+    pictura::ShpSupport::setGateInteractive(0);
+    QVERIFY(!grow(19));
+    QCOMPARE(view->document_height(), 3 * kH + 2);
+    QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("Preferences > Advanced")));
+
+    pictura::ShpSupport::setGateInteractive(1);
+    support_->setAllowOverLimit(true);
+    {
+        LimitClicker first({QStringLiteral("go")});
+        QVERIFY(grow(19));
+        QCOMPARE(first.seen(), QStringList{QStringLiteral("shpLimitDialog")});
+        QCOMPARE(view->document_height(), 19);
+    }
+    {
+        // Past 10%: refused without the ceiling setting...
+        LimitClicker refused({QStringLiteral("go")});
+        QVERIFY(!grow(21));
+        QVERIFY(refused.seen().isEmpty());
+        QVERIFY(refused.refused());
+        QCOMPARE(view->document_height(), 19);
+    }
+    support_->setRemoveCeiling(true);
+    // ...and with it, only the second prompt comes up again.
+    LimitClicker second({QStringLiteral("go")});
+    QVERIFY(grow(21));
+    QCOMPARE(second.seen(), QStringList{QStringLiteral("shpLimitCeilingDialog")});
+    QCOMPARE(view->document_height(), 21);
+}
+
+void ShpTest::aBiggerWindowNeedsTheAllowance()
+{
+    // 800 bytes holds windows of 4 (572 bytes); 5 frames (3 x 2 cells,
+    // 20 x 11 x 4 = 880 bytes) are exactly 10% over.
+    pictura::shp_set_test_limits(800, 0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QCOMPARE(pictura::shp_info(*view).frames, 4);
+    QSpinBox* frames = support_->frames()->windowFrames();
+    QTRY_VERIFY(frames->isVisible());
+    QCOMPARE(frames->value(), 4);
+
+    pictura::ShpSupport::setGateInteractive(0);
+    QVERIFY(!support_->setWindowFrames(5));
+    QCOMPARE(pictura::shp_info(*view).frames, 4);
+
+    pictura::ShpSupport::setGateInteractive(1);
+    support_->setAllowOverLimit(true);
+    LimitClicker go({QStringLiteral("go")});
+    frames->setValue(5);
+    QCOMPARE(go.seen(), QStringList{QStringLiteral("shpLimitDialog")});
+    pictura::ShpInfo info = pictura::shp_info(*view);
+    QCOMPARE(info.frames, 5);
+    QCOMPARE(info.span, 5);
+    QCOMPARE(frames->value(), 5);
+    // Windows of that size page without asking again.
+    QVERIFY(support_->pageTo(9));
+    info = pictura::shp_info(*view);
+    QCOMPARE(info.first, 5);
+    QCOMPARE(info.frames, 5);
+    QCOMPARE(go.seen().size(), 1);
+    const QString out = dir_.filePath(QStringLiteral("window5.shp"));
+    QVERIFY(window_->saveActiveAs(out));
+    QCOMPARE(readFile(out), sprite());
 }
 
 QTEST_MAIN(ShpTest)

@@ -19,6 +19,7 @@
 #include "pictura_app/src/cxxqt_object/pdf_export/import.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
 #include "shp_palettes.h"
+#include "shp_support.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QEventLoop>
@@ -554,6 +555,12 @@ quint64 PicturaMainWindow::startOpenImagePath(const QString& path)
     auto* view = new PictureView(this);
     applyColorSettings(view);
     if (!confirmProfileForOpen(view, path)) {
+        delete view;
+        return 0;
+    }
+    // KookaPictura-SHP fork: the SHP size limit, from the header, before any decode.
+    if (ShpSupport* shp = ShpSupport::of(this);
+        shp && shp_sniff_file(path) && !shp->confirmOpen(view, path)) {
         delete view;
         return 0;
     }

@@ -1,6 +1,7 @@
 #include "control_server.h"
 #include "control_scope.h"
 #include "control_server_support.h"
+#include "shp_support.h"
 
 #include "api/document_api.h"
 #include "api/history_api.h"
@@ -581,10 +582,14 @@ QJsonObject ControlServer::dispatch(const QString& method, const QJsonObject& pa
 {
     const UnsavedChoice cancel = UnsavedChoice::Cancel;
     const ControlScope scope(policy_.live ? &cancel : nullptr);
+    const ShpSupport::Quiet shpQuiet; // KookaPictura-SHP fork: no size-limit dialogs
     const QJsonObject response = route(method, params);
     if (scope.cancelledAny()) {
         return error(QStringLiteral("refused"),
                      QStringLiteral("request reached a dialog: %1").arg(scope.cancelled()));
+    }
+    if (!shpQuiet.refusal().isEmpty()) {
+        return error(QStringLiteral("refused"), shpQuiet.refusal());
     }
     return response;
 }
