@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Unit-sprite tools on SHP documents: the shadow half of a unit sprite
 //! (`pictura_shp::unit`): find it, check it, generate shadows from the art,
-//! clear them.
+//! clear them; and the house-color preview's ramp.
 //!
 //! On a whole sheet, generating or clearing is one recorded edit; adding a
 //! missing shadow half grows the sheet like Insert Frames, through the size
@@ -478,4 +478,21 @@ pub(in crate::cxxqt_object) fn shp_clear_shadows(
     shadow_edit(view, "Clear Shadows", |rust| {
         clear_rust(rust, half, &frames)
     })
+}
+
+pub(in crate::cxxqt_object) fn shp_house_ramp(
+    view: &PictureView,
+    rgb: u32,
+    first: i32,
+    last: i32,
+) -> Vec<u32> {
+    let (Some(header), Ok(first), Ok(last)) =
+        (view_header(view), u8::try_from(first), u8::try_from(last))
+    else {
+        return Vec::new();
+    };
+    if first > last {
+        return Vec::new();
+    }
+    unit::house_ramp(&header.palette, first..=last, rgb)
 }

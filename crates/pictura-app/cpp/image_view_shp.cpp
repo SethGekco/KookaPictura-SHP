@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // KookaPictura-SHP fork: the frame grid of an SHP sheet, drawn over the
-// canvas, the onion skin, the shadow underlay and the off-palette marks. View-only: none of it
+// canvas, the house-color preview, the onion skin, the shadow underlay and
+// the off-palette marks. View-only: none of it
 // touches the document or a sampled color.
 
 #include "image_view.h"
@@ -20,7 +21,8 @@ void ImageView::setShpGrid(const ShpGrid& grid)
         && g.onion == grid.onion && g.onionOpacity == grid.onionOpacity
         && g.offPalette == grid.offPalette && g.first == grid.first
         && g.shadowHalf == grid.shadowHalf && g.shadowUnderlay == grid.shadowUnderlay
-        && g.activeShadow.cacheKey() == grid.activeShadow.cacheKey()) {
+        && g.activeShadow.cacheKey() == grid.activeShadow.cacheKey()
+        && g.remapFrom == grid.remapFrom && g.remapTo == grid.remapTo) {
         return;
     }
     shpGrid_ = grid;
@@ -192,6 +194,84 @@ void ImageView::paintShpShadow(QPainter& painter)
     painter.restore();
 }
 
+// House-color preview: the visible pixels whose color is one of the remap
+// indices' sheet colors are drawn again in the preview ramp. View-only. At
+// most kHouseBudget pixels are recolored per change (zoomed far out on a
+// big sheet only the active cell is); the result is kept until the
+// pixels, the region or the colors change.
+namespace {
+constexpr qint64 kHouseBudget = 8 * 1024 * 1024;
+} // namespace
+
+void ImageView::paintShpHouse(QPainter& painter)
+{
+    const ShpGrid& g = shpGrid_;
+    if (g.remapFrom.isEmpty() || g.remapFrom.size() != g.remapTo.size() || docSize_.isEmpty()
+        || g.cell.isEmpty() || g.cols <= 0) {
+        return;
+    }
+    const QRectF visible = viewRect();
+    QRect region = QRectF((visible.left() - offset_.x()) / zoom_,
+                          (visible.top() - offset_.y()) / zoom_, visible.width() / zoom_,
+                          visible.height() / zoom_)
+                       .toAlignedRect()
+                   & QRect(QPoint(), docSize_);
+    if (qint64(region.width()) * region.height() > kHouseBudget) {
+        if (g.active < 0 || g.active >= g.frames) {
+            return;
+        }
+        const QRect cell(QPoint((g.active % g.cols) * (g.cell.width() + g.gutter),
+                                (g.active / g.cols) * (g.cell.height() + g.gutter)),
+                         g.cell);
+        region &= cell;
+        if (qint64(region.width()) * region.height() > kHouseBudget) {
+            return;
+        }
+    }
+    if (region.isEmpty()) {
+        return;
+    }
+    const quint64 revision = levelProvider_.canvasRevision ? levelProvider_.canvasRevision()
+                                                           : quint64(image_.cacheKey());
+    ShpHouseCache& cache = shpHouseCache_;
+    if (cache.image.isNull() || cache.revision != revision || cache.region != region
+        || cache.from != g.remapFrom || cache.to != g.remapTo) {
+        QImage source = !image_.isNull() ? image_.copy(region)
+                        : levelProvider_.crop
+                            ? levelProvider_.crop(0, region.x(), region.y(), region.width(),
+                                                  region.height())
+                            : QImage();
+        if (source.isNull()) {
+            return;
+        }
+        source = source.convertToFormat(QImage::Format_ARGB32);
+        QImage out(region.size(), QImage::Format_ARGB32_Premultiplied);
+        out.fill(Qt::transparent);
+        for (int y = 0; y < source.height(); ++y) {
+            const auto* in = reinterpret_cast<const QRgb*>(source.constScanLine(y));
+            auto* dst = reinterpret_cast<QRgb*>(out.scanLine(y));
+            for (int x = 0; x < source.width(); ++x) {
+                if (qAlpha(in[x]) != 255) {
+                    continue;
+                }
+                const qsizetype k = g.remapFrom.indexOf(in[x] | 0xFF000000u);
+                if (k >= 0) {
+                    dst[x] = g.remapTo[k] | 0xFF000000u;
+                }
+            }
+        }
+        cache = {revision, region, g.remapFrom, g.remapTo, out};
+    }
+    painter.save();
+    painter.setTransform(viewRotation());
+    painter.setClipRect(viewRect());
+    painter.translate(offset_);
+    painter.scale(zoom_, zoom_);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, smoothSamplingForZoom(zoom_));
+    painter.drawImage(QPointF(region.topLeft()), cache.image);
+    painter.restore();
+}
+
 // Drawn in the view frame so the lines stay one screen pixel wide at any
 // zoom: each cell is outlined just outside its pixels (in the gutter), and
 // the active cell gets a second, highlighted outline.
@@ -201,6 +281,7 @@ void ImageView::paintShpGrid(QPainter& painter)
     if (docSize_.isEmpty() || g.cell.isEmpty() || g.cols <= 0 || g.frames <= 0) {
         return;
     }
+    paintShpHouse(painter);
     paintShpShadow(painter);
     paintShpOnion(painter);
     painter.save();

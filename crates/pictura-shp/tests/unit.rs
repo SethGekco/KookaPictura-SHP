@@ -1,8 +1,9 @@
 //! Unit-sprite conventions: the shadow split, its check, the cast shadow,
 //! and a census of the split over a private corpus (ignored by default).
 
+use pictura_shp::palette::Palette;
 use pictura_shp::unit::{
-    classify, file_frame_use, silhouette, split, violations, ShadowParams, Use, SHADOW,
+    classify, file_frame_use, house_ramp, silhouette, split, violations, ShadowParams, Use, SHADOW,
 };
 use pictura_shp::{build, sniff};
 use std::os::unix::ffi::OsStrExt;
@@ -172,6 +173,44 @@ fn file_frames_are_classified_from_their_stored_rectangle() {
     let uses: Vec<Use> = (0..4).map(|i| file_frame_use(&bytes, i)).collect();
     assert_eq!(uses, vec![Use::Art, Use::Art, Use::Shadow, Use::Empty]);
     assert_eq!(split(&uses), Some(2));
+}
+
+#[test]
+fn the_house_ramp_follows_the_palette_shading() {
+    let mut argb = [0xFF00_0000u32; 256];
+    // A remap ramp from bright red down to dark red, as unit palettes have.
+    for i in 16..32u32 {
+        let v = 255 - (i - 16) * 15;
+        argb[i as usize] = 0xFF00_0000 | (v << 16);
+    }
+    let palette = Palette {
+        argb,
+        name: "unittem.pal".into(),
+    };
+    let gold = 0x00FF_C800;
+    let ramp = house_ramp(&palette, 16..=31, gold);
+    assert_eq!(ramp.len(), 16);
+    assert_eq!(
+        ramp[0],
+        0xFF00_0000 | gold,
+        "the brightest entry is the color itself"
+    );
+    let green = |c: u32| (c >> 8) & 0xFF;
+    assert!(
+        ramp.windows(2).all(|w| green(w[1]) < green(w[0])),
+        "darker down the ramp"
+    );
+    // 255 - 15 * 15 = 30 of 255: the last entry keeps that share.
+    assert_eq!(green(ramp[15]), (200.0f64 * 30.0 / 255.0).round() as u32);
+    assert!(ramp.iter().all(|c| c >> 24 == 0xFF && c & 0xFF == 0));
+    // A black range still gives a usable ramp.
+    let black = Palette {
+        argb: [0xFF00_0000; 256],
+        name: String::new(),
+    };
+    let even = house_ramp(&black, 16..=31, 0x0010_2030);
+    assert_eq!(even[0], 0xFF10_2030);
+    assert!(even[15] & 0xFF_FFFF < 0x0010_2030 & 0xFF_FFFF);
 }
 
 /// The shadow-split census over a private corpus (nothing is written):

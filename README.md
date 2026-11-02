@@ -46,9 +46,11 @@ effect art directly.
   shadows from the art (offset and lean; it adds the shadow frames when a
   sprite has none), Clear empties them, a view-only underlay shows each
   shadow under its frame, and Save warns when a shadow frame holds other
-  colors.
+  colors. A house-color preview shows the remap colors of a unit in any of
+  the eight multiplayer colors or one of your own (view only, and an
+  approximation of the game's ramp).
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: house-colour preview (see
+  byte-identical. Next: radar color and palette kinds (see
   [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that

@@ -963,8 +963,8 @@ pub(super) use frames::{shp_frame_size, shp_plan_frame_size};
 #[path = "unit.rs"]
 mod unit;
 pub(super) use unit::{
-    shp_clear_shadows, shp_generate_shadows, shp_plan_shadow_half, shp_shadow_detect,
-    shp_shadow_violations,
+    shp_clear_shadows, shp_generate_shadows, shp_house_ramp, shp_plan_shadow_half,
+    shp_shadow_detect, shp_shadow_violations,
 };
 
 #[path = "authoring.rs"]

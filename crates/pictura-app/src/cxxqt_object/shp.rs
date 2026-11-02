@@ -329,6 +329,12 @@ pub mod ffi {
         /// `shp_generate_shadows`. The frames cleared, or -1.
         fn shp_clear_shadows(view: Pin<&mut PictureView>, half: i32, frames: &[i32]) -> i32;
 
+        /// The house-color preview's colors for the remap indices
+        /// `first..=last`: `rgb` (`0xRRGGBB`) shaded like the palette's own
+        /// entries there, as `0xFFRRGGBB`. Approximate: not the game's own
+        /// formula. Empty for a document that is not an SHP.
+        fn shp_house_ramp(view: &PictureView, rgb: u32, first: i32, last: i32) -> Vec<u32>;
+
         /// Test seam: the size limit and available memory in bytes (0 keeps
         /// the real value).
         fn shp_set_test_limits(limit: u64, available: u64);

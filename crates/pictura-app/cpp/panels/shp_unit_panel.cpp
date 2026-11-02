@@ -7,6 +7,8 @@
 
 #include <QtGui/QAction>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QColorDialog>
+#include <QtWidgets/QComboBox>
 #include <QtWidgets/QDoubleSpinBox>
 #include <QtWidgets/QFormLayout>
 #include <QtWidgets/QGroupBox>
@@ -105,7 +107,50 @@ ShpUnitPanel::ShpUnitPanel(ShpFramesPanel* frames, QWidget* parent)
     buttons->addStretch(1);
     form->addRow(buttons);
     layout->addWidget(box);
+
+    auto* houseBox = new QGroupBox(tr("House Color"), this);
+    auto* houseForm = new QFormLayout(houseBox);
+    house_ = new QCheckBox(tr("Preview house color (approximate)"), houseBox);
+    house_->setObjectName(QStringLiteral("shpHousePreview"));
+    house_->setToolTip(
+        tr("Show the house-color remap indices (16-31 of a unit palette) in a player's "
+           "color. Approximate: the ramp follows the palette's own shading, not the game's "
+           "formula. View only: colors you pick and the saved file are unchanged."));
+    houseColors_ = new QComboBox(houseBox);
+    houseColors_->setObjectName(QStringLiteral("shpHouseColor"));
+    for (const auto& [name, color] : housePresets()) {
+        houseColors_->addItem(name, color);
+    }
+    houseColors_->addItem(tr("Custom"));
+    houseSwatch_ = new QLabel(houseBox);
+    houseSwatch_->setObjectName(QStringLiteral("shpHouseSwatch"));
+    houseSwatch_->setFixedSize(28, 18);
+    auto* custom = new QToolButton(houseBox);
+    custom->setObjectName(QStringLiteral("shpHouseCustom"));
+    custom->setText(tr("Pick..."));
+    custom->setToolTip(tr("Preview a color of your own"));
+    auto* colorRow = new QHBoxLayout;
+    colorRow->addWidget(houseColors_, 1);
+    colorRow->addWidget(houseSwatch_);
+    colorRow->addWidget(custom);
+    houseForm->addRow(house_);
+    houseForm->addRow(tr("Color:"), colorRow);
+    layout->addWidget(houseBox);
     layout->addStretch(1);
+    setHouseColor(housePresets().first().second);
+    connect(house_, &QCheckBox::toggled, this, [this] { frames_->syncGrid(); });
+    connect(houseColors_, &QComboBox::activated, this, [this](int index) {
+        const QVariant color = houseColors_->itemData(index);
+        if (color.isValid()) {
+            setHouseColor(color.value<QColor>());
+        }
+    });
+    connect(custom, &QToolButton::clicked, this, [this] {
+        const QColor color = QColorDialog::getColor(houseColor_, this, tr("House Color"));
+        if (color.isValid()) {
+            setHouseColor(color);
+        }
+    });
 
     connect(shadows_, &QCheckBox::toggled, this, [this](bool on) {
         if (view_) {
@@ -141,6 +186,43 @@ ShpUnitPanel::ShpUnitPanel(ShpFramesPanel* frames, QWidget* parent)
             [clear] { clear(true); });
     frames_->setGridDecorator([this](ImageView::ShpGrid& grid) { decorate(grid); });
     refresh();
+}
+
+QList<QPair<QString, QColor>> ShpUnitPanel::housePresets()
+{
+    // Stock rulesmd.ini [Colors] of Yuri's Revenge, Westwood HSV (each 0-255),
+    // for the eight multiplayer colors.
+    const struct {
+        const char* name;
+        int h, s, v;
+    } stock[] = {
+        {QT_TR_NOOP("Gold"), 43, 239, 255},     {QT_TR_NOOP("Red"), 0, 230, 255},
+        {QT_TR_NOOP("Blue"), 153, 214, 212},    {QT_TR_NOOP("Green"), 81, 200, 210},
+        {QT_TR_NOOP("Orange"), 25, 230, 255},   {QT_TR_NOOP("Sky Blue"), 131, 200, 230},
+        {QT_TR_NOOP("Purple"), 201, 201, 189},  {QT_TR_NOOP("Pink"), 221, 102, 255},
+    };
+    QList<QPair<QString, QColor>> out;
+    for (const auto& c : stock) {
+        out.append({tr(c.name), QColor::fromHsv(c.h * 360 / 256, c.s, c.v)});
+    }
+    return out;
+}
+
+void ShpUnitPanel::setHouseColor(const QColor& color)
+{
+    houseColor_ = color.toRgb();
+    int index = houseColors_->count() - 1; // Custom
+    for (int i = 0; i + 1 < houseColors_->count(); ++i) {
+        if (houseColors_->itemData(i).value<QColor>().rgb() == houseColor_.rgb()) {
+            index = i;
+            break;
+        }
+    }
+    houseColors_->setCurrentIndex(index);
+    houseSwatch_->setStyleSheet(QStringLiteral("background: %1; border: 1px solid palette(mid);")
+                                    .arg(houseColor_.name()));
+    houseSwatch_->setToolTip(houseColor_.name());
+    frames_->syncGrid();
 }
 
 bool ShpUnitPanel::shadowsOf(PictureView* view)
@@ -217,6 +299,7 @@ void ShpUnitPanel::sync()
         readout_->setText(tr("Shadows: none. Generate adds a shadow frame for every frame."));
     }
     underlay_->setEnabled(half > 0);
+    house_->setEnabled(shp);
     for (QAction* action : std::as_const(actions_)) {
         action->setEnabled(shp);
     }
@@ -288,6 +371,19 @@ void ShpUnitPanel::decorate(ImageView::ShpGrid& grid)
     const int shadow = active >= 0 && active < half ? active + half : -1;
     if (grid.shadowUnderlay && shadow >= 0 && !frames_->onSheet(shadow)) {
         grid.activeShadow = offSheetShadow(shadow);
+    }
+    if (house_->isChecked()) {
+        constexpr int kFirst = 16;
+        constexpr int kLast = 31;
+        const ::rust::Vec<uint32_t> unique = shp_palette_unique(*view_);
+        const ::rust::Vec<uint32_t> ramp =
+            shp_house_ramp(*view_, houseColor_.rgb() & 0xFFFFFFu, kFirst, kLast);
+        if (unique.size() == 256 && ramp.size() == size_t(kLast - kFirst + 1)) {
+            for (int i = kFirst; i <= kLast; ++i) {
+                grid.remapFrom.append(unique[size_t(i)] | 0xFF000000u);
+                grid.remapTo.append(ramp[size_t(i - kFirst)]);
+            }
+        }
     }
 }
 

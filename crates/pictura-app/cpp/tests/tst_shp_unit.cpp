@@ -19,6 +19,7 @@
 #include <QtGui/QAction>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QComboBox>
 #include <QtWidgets/QDoubleSpinBox>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QListWidget>
@@ -132,6 +133,7 @@ private slots:
     void underlayShowsShadowsWithoutChangingSamplesOrBytes();
     void saveWarnsAboutColoredShadowFramesButSaves();
     void aPagedSpriteGeneratesShadowsOffTheSheet();
+    void housePreviewRecolorsTheRemapViewOnly();
 };
 
 void ShpUnitTest::init()
@@ -412,6 +414,63 @@ void ShpUnitTest::aPagedSpriteGeneratesShadowsOffTheSheet()
     QCOMPARE(pixel(back, 6, 1, 1), shade);
     QCOMPARE(pixel(back, 7, 1, 1) >> 24, 0u);
     QCOMPARE(pixel(back, 7, 4, 1), shade);
+}
+
+void ShpUnitTest::housePreviewRecolorsTheRemapViewOnly()
+{
+    pictura::PictureView* view = open(unit_);
+    QVERIFY(view);
+    pictura::ShpUnitPanel* unit = support_->unit();
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), 2 * kArt);
+    frames->setSelectsCell(false);
+    frames->focusFrame(1);
+    // Index 20 (house-color remap) at (2, 2) of frame 1; (1, 1) stays 41.
+    const QRect cell = frames->cellRect(1);
+    const QPoint p = cell.topLeft() + QPoint(2, 2);
+    const QPoint q = cell.topLeft() + QPoint(1, 1);
+    QVERIFY(dab(view, pictura::shp_palette_unique(*view)[20] | 0xFF000000u, p.x(), p.y()));
+    pictura::ImageView* canvas = window_->canvasAt(0);
+    QVERIFY(canvas);
+    const QRgb plainP = shown(canvas, p.x(), p.y());
+    const QRgb plainQ = shown(canvas, q.x(), q.y());
+    const quint32 layer = pictura::sample_argb_scoped(*view, p.x(), p.y(), 1, 0);
+    const quint32 all = pictura::sample_argb_scoped(*view, p.x(), p.y(), 3, 2);
+    const quint32 composite = view->composite_argb(p.x(), p.y());
+    const int history = view->history_index();
+    const QString offPath = dir_.filePath(QStringLiteral("house-off.shp"));
+    QVERIFY(window_->saveActiveAs(offPath));
+
+    QVERIFY(unit->houseToggle()->text().contains(QStringLiteral("approximate")));
+    QCOMPARE(unit->houseColors()->count(), 9); // eight multiplayer colors and Custom
+    unit->houseToggle()->setChecked(true);
+    QCOMPARE(canvas->shpGrid().remapFrom.size(), 16);
+    QCOMPARE(canvas->shpGrid().remapTo.size(), 16);
+    QTRY_COMPARE(shown(canvas, p.x(), p.y()) & 0xFFFFFFu,
+                 canvas->shpGrid().remapTo[4] & 0xFFFFFFu);
+    QCOMPARE(shown(canvas, q.x(), q.y()), plainQ);
+    const QRgb gold = shown(canvas, p.x(), p.y());
+
+    // Another preset, then a color of the user's own.
+    const auto presets = pictura::ShpUnitPanel::housePresets();
+    unit->setHouseColor(presets[2].second);
+    QCOMPARE(unit->houseColors()->currentText(), presets[2].first);
+    QTRY_VERIFY(shown(canvas, p.x(), p.y()) != gold);
+    unit->setHouseColor(QColor(10, 200, 30));
+    QCOMPARE(unit->houseColors()->currentText(), QStringLiteral("Custom"));
+    QTRY_COMPARE(shown(canvas, p.x(), p.y()) & 0xFFFFFFu,
+                 canvas->shpGrid().remapTo[4] & 0xFFFFFFu);
+
+    // Nothing but the screen changed.
+    QCOMPARE(view->history_index(), history);
+    QCOMPARE(pictura::sample_argb_scoped(*view, p.x(), p.y(), 1, 0), layer);
+    QCOMPARE(pictura::sample_argb_scoped(*view, p.x(), p.y(), 3, 2), all);
+    QCOMPARE(view->composite_argb(p.x(), p.y()), composite);
+    const QString onPath = dir_.filePath(QStringLiteral("house-on.shp"));
+    QVERIFY(window_->saveActiveAs(onPath));
+    QCOMPARE(readFile(onPath), readFile(offPath));
+    unit->houseToggle()->setChecked(false);
+    QTRY_COMPARE(shown(canvas, p.x(), p.y()), plainP);
 }
 
 QTEST_MAIN(ShpUnitTest)

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // KookaPictura-SHP fork: the Unit panel of an SHP document (the shadow half
-// of a unit sprite).
+// of a unit sprite, the house-color preview).
 #pragma once
 
 #include <QtCore/QHash>
 #include <QtCore/QList>
 #include <QtCore/QPair>
 #include <QtCore/QPointer>
+#include <QtGui/QColor>
 #include <QtGui/QImage>
 #include <QtWidgets/QWidget>
 
@@ -14,6 +15,7 @@
 
 class QAction;
 class QCheckBox;
+class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QSpinBox;
@@ -30,6 +32,10 @@ class ShpFramesPanel;
 // hold colors other than index 0 and 1. Generate casts shadows from the
 // art (index 1, with an offset and a lean); Clear empties shadow frames.
 // The underlay shows each frame's shadow under it, view only.
+//
+// House color: the remap indices (16-31 of a unit palette) previewed in a
+// multiplayer color or one of the user's, view only and approximate (the
+// palette's own shading of the ramp, not the game's formula).
 class ShpUnitPanel : public QWidget {
     Q_OBJECT
 
@@ -63,6 +69,14 @@ public:
     // generate, generateAll, clear, clearAll.
     QAction* action(const QString& name) const { return actions_.value(name); }
 
+    // The preset house colors: the stock Yuri's Revenge multiplayer colors.
+    static QList<QPair<QString, QColor>> housePresets();
+    QCheckBox* houseToggle() const { return house_; }
+    QComboBox* houseColors() const { return houseColors_; }
+    QColor houseColor() const { return houseColor_; }
+    // Preview in `color` (a preset when it is one, else "Custom").
+    void setHouseColor(const QColor& color);
+
 signals:
     void generateRequested(const QList<int>& art, int dx, int dy, double skew);
     void clearRequested(const QList<int>& frames);
@@ -82,6 +96,10 @@ private:
     QDoubleSpinBox* skew_ = nullptr;
     QLabel* readout_ = nullptr;
     QHash<QString, QAction*> actions_;
+    QCheckBox* house_ = nullptr;
+    QComboBox* houseColors_ = nullptr;
+    QLabel* houseSwatch_ = nullptr;
+    QColor houseColor_;
     // The active frame's shadow when it is off a paged sheet: frame, stamp.
     QPair<int, quint64> shadowKey_{-1, 0};
     QImage shadowImage_;

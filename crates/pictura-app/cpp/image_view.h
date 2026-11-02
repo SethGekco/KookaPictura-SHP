@@ -489,6 +489,10 @@ public:
         int shadowHalf = 0;
         bool shadowUnderlay = false;
         QImage activeShadow;
+        // House-color preview: opaque pixels of color remapFrom[i] show as
+        // remapTo[i] (empty: off).
+        QVector<QRgb> remapFrom;
+        QVector<QRgb> remapTo;
     };
     void setShpGrid(const ShpGrid& grid);
     const ShpGrid& shpGrid() const { return shpGrid_; }
@@ -703,7 +707,18 @@ private:
     void paintShpOnion(QPainter& painter);
     void paintShpOffPalette(QPainter& painter);
     void paintShpShadow(QPainter& painter);
+    void paintShpHouse(QPainter& painter);
     QImage shpCellImage(int cell) const;
+    // The house-color preview of the last paint, kept while the pixels, the
+    // region and the colors stay.
+    struct ShpHouseCache {
+        quint64 revision = 0;
+        QRect region;
+        QVector<QRgb> from;
+        QVector<QRgb> to;
+        QImage image;
+    };
+    ShpHouseCache shpHouseCache_;
     void paintSmartGuides(QPainter& painter);
     QString formatGuideDistance(double documentPixels) const;
     QList<SmartGuideLine> smartGuideLines_;

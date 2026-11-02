@@ -3,13 +3,15 @@
 // this fork.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Unit-sprite conventions: the shadow half.
+//! Unit-sprite conventions: the shadow half and a house-color preview ramp.
 //!
 //! A TS/RA2 unit SHP conventionally holds 2N frames: N of art followed by N
 //! shadow frames that use only index 0 (transparent) and index 1 (shadow).
 //! Nothing in the file says so; it is read from the pixels ([`split`]).
 
 use crate::codec::{decode_frame, FrameHeader};
+use crate::palette::Palette;
+use std::ops::RangeInclusive;
 
 /// The shadow index of unit palettes.
 pub const SHADOW: u8 = 1;
@@ -115,4 +117,34 @@ pub fn silhouette(art: &[u8], width: usize, height: usize, p: ShadowParams) -> V
         }
     }
     out
+}
+
+/// A house-color ramp for the remap indices `range` of `palette` (as read
+/// from the `.pal`), as `0xFFRRGGBB` per index: `rgb` scaled by each
+/// entry's luma relative to the brightest entry of the range, so the ramp
+/// keeps the palette's own shading. An approximation for previews only: the
+/// game builds its ramps its own way. A range that is black throughout
+/// gets an even ramp from `rgb` down.
+pub fn house_ramp(palette: &Palette, range: RangeInclusive<u8>, rgb: u32) -> Vec<u32> {
+    let luma = |c: u32| {
+        let (r, g, b) = ((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+        f64::from(299 * r + 587 * g + 114 * b) / 1000.0
+    };
+    let entries: Vec<u32> = range.map(|i| palette.argb[usize::from(i)]).collect();
+    let n = entries.len();
+    let brightest = entries.iter().map(|&c| luma(c)).fold(0.0, f64::max);
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            let factor = if brightest > 0.0 {
+                luma(c) / brightest
+            } else {
+                (n - i) as f64 / n as f64
+            };
+            let scale =
+                |shift: u32| ((f64::from((rgb >> shift) & 0xFF) * factor).round() as u32).min(255);
+            0xFF00_0000 | (scale(16) << 16) | (scale(8) << 8) | scale(0)
+        })
+        .collect()
 }

@@ -766,4 +766,22 @@ Phase 3, unit tools (recorded as each piece landed):
   once per frame (cached by its stamp), not in the paint path. Tested: the
   document, the eyedropper's samples, the composite and the saved bytes do
   not change.
+- **House-color preview** (Unit panel, "Preview house color
+  (approximate)"): `ImageView::paintShpHouse` draws the visible pixels
+  whose color is a remap index's sheet color again in a ramp, before the
+  other overlays; view only (tested: document, samples, composite, saved
+  bytes and History unchanged). The ramp (`unit::house_ramp`) is the plan's:
+  the chosen color scaled by each remap entry's luma relative to the
+  brightest entry of the palette's own 16-31, so it keeps the palette's
+  shading; the game's own remap formula is not matched, and the checkbox
+  and tooltip say "approximate". Presets: the eight Yuri's Revenge
+  multiplayer colors from the stock `rulesmd.ini` `[Colors]` (Westwood HSV
+  0-255, hue scaled to 360): Gold 43,239,255; Red (DarkRed) 0,230,255; Blue
+  (DarkBlue) 153,214,212; Green (DarkGreen) 81,200,210; Orange 25,230,255;
+  Sky Blue (DarkSky) 131,200,230; Purple 201,201,189; Pink (Magenta)
+  221,102,255. The same values are in the owner's modded `rulesmd.ini`
+  (read only, nothing copied). "Pick..." takes any color. At most 8
+  megapixels are recolored per change (zoomed far out on a big sheet, only
+  the active cell); the result is cached until the pixels, the region or
+  the colors change.
 
