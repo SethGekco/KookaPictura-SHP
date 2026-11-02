@@ -3,6 +3,7 @@
 
 #include "gpu_probe.h"
 #include "panels/actions_panel.h"
+#include "shp_support.h"
 
 #include "pictura_debug_timing.h"
 #include "type_fonts.h"
@@ -94,6 +95,9 @@ void PicturaMainWindow::retargetDock()
         pictura::ScopedTimer t("cxx_histogramPanel_refresh");
         histogramPanel_->setView(view);
     }
+    if (ShpSupport* shp = ShpSupport::of(this)) {
+        shp->setView(view, canvas);
+    }
 
     dockView_ = view;
     dockCanvas_ = canvas;
@@ -154,6 +158,9 @@ void PicturaMainWindow::refreshDock(bool includeSelfRefreshing)
     }
     if (histogramPanel_) {
         histogramPanel_->refresh();
+    }
+    if (ShpSupport* shp = ShpSupport::of(this)) {
+        shp->refresh();
     }
 }
 

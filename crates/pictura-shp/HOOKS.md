@@ -16,10 +16,22 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/src/cxxqt_object/open_jobs/imp.rs` | `decode_image_with_options`: `shp::decode_shp` right after the file is read, before `decode_import` (so it wins over an installed Qt SHP plugin and skips `finalize_import`); `open_image_start`: takes `shp_open_palette` and runs the decode inside `shp::with_open_palette` |
 | `crates/pictura-app/src/cxxqt_object/impl_core.rs` | `revert`: the decode runs inside `shp::with_document_palette`, so a reverted SHP keeps its palette |
 | `crates/pictura-app/src/cxxqt_object/impl_core/save.rs` | `save`: an `shp` suffix goes to `shp::save_shp` before the native fallback |
+| `CMakeLists.txt` | the new shell sources (`shp_palettes`, `shp_support`, `image_view_shp`, `panels/shp_{frames,palette}_panel`) |
+| `crates/pictura-app/cpp/tests/CMakeLists.txt` | `tst_shp` in the suite list |
+| `crates/pictura-app/cpp/frame_build.cpp` | `registerPanel(ShpSupport::install(this, colorState_)->dock(), Qt::BottomDockWidgetArea)` and its include |
+| `crates/pictura-app/cpp/frame_session.cpp` | `retargetDock` calls `ShpSupport::setView`, `refreshDock` calls `ShpSupport::refresh`; one include |
+| `crates/pictura-app/cpp/frame_open.cpp` | `startOpenImagePath`: when `shp_sniff_file(path)`, `shp_set_open_palette(*view, resolveShpPalette(path))` before `open_image_start`; two includes |
+| `crates/pictura-app/cpp/keyboard_shortcuts_dialog.cpp` | `,` and `.` (frame stepping) added to `workspaceKeys()`, so the shortcut editor never hands them to a command |
+| `crates/pictura-app/cpp/image_view.h` | the `ShpGrid` struct, `setShpGrid`/`shpGrid`, `paintShpGrid` and the `shpGrid_` member |
+| `crates/pictura-app/cpp/image_view.cpp` | `paintEvent` calls `paintShpGrid(painter)` before the guides |
 
 Everything else for SHP documents lives in new files:
 `crates/pictura-app/src/cxxqt_object/shp.rs` (bridge declarations) and
-`shp/{imp,tests}.rs`, and `crates/pictura-shp/src/{sheet,resource}.rs`.
+`shp/{imp,tests}.rs`, `crates/pictura-shp/src/{sheet,resource}.rs`, and in
+the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP opens with),
+`cpp/shp_support.{h,cpp}` (the dock, `,`/`.` stepping, the save gate),
+`cpp/panels/shp_{frames,palette}_panel.{h,cpp}`, `cpp/image_view_shp.cpp`
+(the frame grid) and `cpp/tests/tst_shp.cpp`.
 
 The generic save guard (any suffix without a writer is refused instead of
 receiving PSD bytes) is kept self-contained so upstream can take it alone:

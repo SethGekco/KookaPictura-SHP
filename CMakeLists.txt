@@ -529,6 +529,9 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/image_view_overlays.cpp
     crates/pictura-app/cpp/image_view_annotations.cpp
     crates/pictura-app/cpp/image_view_guides.cpp
+    crates/pictura-app/cpp/image_view_shp.cpp
+    crates/pictura-app/cpp/shp_palettes.cpp
+    crates/pictura-app/cpp/shp_support.cpp
     crates/pictura-app/cpp/image_view_smart_guides.cpp
     crates/pictura-app/cpp/smart_guides.cpp
     crates/pictura-app/cpp/image_view_channels.cpp
@@ -644,6 +647,8 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/swatches_panel.cpp
     crates/pictura-app/cpp/panels/info_panel.cpp
     crates/pictura-app/cpp/panels/notes_panel.cpp
+    crates/pictura-app/cpp/panels/shp_frames_panel.cpp
+    crates/pictura-app/cpp/panels/shp_palette_panel.cpp
     crates/pictura-app/cpp/panels/histogram_panel.cpp
     crates/pictura-app/cpp/panels/adjustments_panel.cpp
     crates/pictura-app/cpp/panels/placeholder_panel.cpp
@@ -840,6 +845,10 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/swatches_panel.h
     crates/pictura-app/cpp/panels/info_panel.h
     crates/pictura-app/cpp/panels/notes_panel.h
+    crates/pictura-app/cpp/panels/shp_frames_panel.h
+    crates/pictura-app/cpp/panels/shp_palette_panel.h
+    crates/pictura-app/cpp/shp_palettes.h
+    crates/pictura-app/cpp/shp_support.h
     crates/pictura-app/cpp/panels/histogram_panel.h
     crates/pictura-app/cpp/panels/placeholder_panel.h
     crates/pictura-app/cpp/panels/properties_panel.h

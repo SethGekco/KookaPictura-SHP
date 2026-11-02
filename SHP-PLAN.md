@@ -393,3 +393,18 @@ Phase 1, recorded as each slice landed:
 - **Snap matches against the palette as read, then draws `U[i]`.** Matching
   against the unique colours would break the remap-ramp tie rule, because
   `unique_colours` nudges duplicates apart.
+- **One bottom dock instead of two registered column panels.** The panel
+  column's workspace presets (Essentials regrouping, session layout) would
+  need new command ids and preset entries in several upstream files to host
+  new panels. The Frames and Palette panels share one `QDockWidget` ("SHP
+  Frames & Palette", registered through the existing `registerPanel`) that
+  shows itself when an SHP document becomes active. The palette grid is a
+  small fixed 16 x 16 widget rather than `SwatchGrid`, whose clicks delete
+  and add swatches.
+- **Palette choice order** gained a step: a `.pal` beside the SHP with the
+  same stem comes right after the remembered folder choice. "Stem match"
+  means the longest palette stem that starts the SHP's stem. The choices
+  live in `$XDG_STATE_HOME/kooka-pictura/shp.ini` (QSettings INI) rather
+  than in the session store, so no upstream session code changes.
+- **The frame grid is drawn in the view frame** (one screen pixel at any
+  zoom) around each cell, in the gutter, with the focused cell highlighted.

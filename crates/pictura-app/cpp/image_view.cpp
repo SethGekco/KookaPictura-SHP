@@ -852,6 +852,7 @@ void ImageView::paintEvent(QPaintEvent* event)
     // only the rasterised preview above is clipped to the canvas.
     paintTransformOverlay(painter);
 
+    paintShpGrid(painter);
     paintGuides(painter);
     paintSmartGuides(painter);
     paintCropGroupOverlays(painter);

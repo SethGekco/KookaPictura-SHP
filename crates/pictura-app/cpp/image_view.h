@@ -465,6 +465,18 @@ public:
     };
     void setGuides(const QList<GuideLine>& guides);
     void setGuidesVisible(bool on);
+    // SHP fork (image_view_shp.cpp): the frame grid of an SHP sheet. A null
+    // cell size hides it; `active` outlines one frame's cell.
+    struct ShpGrid {
+        QSize cell;
+        int cols = 0;
+        int frames = 0;
+        int gutter = 0;
+        int active = -1;
+        bool visible = true;
+    };
+    void setShpGrid(const ShpGrid& grid);
+    const ShpGrid& shpGrid() const { return shpGrid_; }
     bool guidesVisible() const { return guidesVisible_; }
     void setGuideAppearance(const QColor& color, bool dashed);
     QColor guideColor() const { return guideColor_; }
@@ -672,12 +684,14 @@ private:
     void paintTransformOverlay(QPainter& painter);
     void paintAnnotations(QPainter& painter);
     void paintGuides(QPainter& painter);
+    void paintShpGrid(QPainter& painter);
     void paintSmartGuides(QPainter& painter);
     QString formatGuideDistance(double documentPixels) const;
     QList<SmartGuideLine> smartGuideLines_;
     QList<SmartGuideGap> smartGuideGaps_;
     bool smartGuidesEnabled_ = true;
     QList<GuideLine> guides_;
+    ShpGrid shpGrid_;
     bool guidesVisible_ = true;
     QColor guideColor_{0x4a, 0xff, 0xff};
     bool guidesDashed_ = false;

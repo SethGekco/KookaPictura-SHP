@@ -190,6 +190,9 @@ const QList<WorkspaceKey>& workspaceKeys()
         {QKeySequence(Qt::Key_Backspace), QT_TR_NOOP("Delete / Clear")},
         {QKeySequence(Qt::SHIFT | Qt::Key_F1), QT_TR_NOOP("Darker Interface")},
         {QKeySequence(Qt::SHIFT | Qt::Key_F2), QT_TR_NOOP("Lighter Interface")},
+        // KookaPictura-SHP fork (shp_support.cpp): SHP frame stepping.
+        {QKeySequence(Qt::Key_Comma), QT_TR_NOOP("Previous SHP Frame")},
+        {QKeySequence(Qt::Key_Period), QT_TR_NOOP("Next SHP Frame")},
     };
     return keys;
 }

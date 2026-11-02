@@ -17,6 +17,8 @@
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/open_jobs.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/pdf_export/import.cxxqt.h"
+#include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
+#include "shp_palettes.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QEventLoop>
@@ -559,6 +561,9 @@ quint64 PicturaMainWindow::startOpenImagePath(const QString& path)
     cursorTokens_.insert(token);
     beginLoadingDocument(view, path, QFileInfo(path).fileName(), token, path,
                          OpenKind::Raster);
+    if (shp_sniff_file(path)) {
+        shp_set_open_palette(*view, resolveShpPalette(path));
+    }
     open_image_start(*view, path);
     return token;
 }

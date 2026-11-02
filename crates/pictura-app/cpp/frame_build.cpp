@@ -15,6 +15,7 @@
 #include "pictura_app/src/cxxqt_object/path_list.cxxqt.h"
 #include "panels/brush_preset_picker.h"
 #include "panels/numeric_field.h"
+#include "shp_support.h"
 #include "text_input.h"
 
 #include <QtCore/QDebug>
@@ -304,6 +305,7 @@ QList<PanelGroup*> PicturaMainWindow::buildPanels(const SessionState& state)
     registerPanel(glyphsPanel_, Qt::RightDockWidgetArea);
     registerPanel(paragraphStylesPanel_, Qt::RightDockWidgetArea);
     registerPanel(characterStylesPanel_, Qt::RightDockWidgetArea);
+    registerPanel(ShpSupport::install(this, colorState_)->dock(), Qt::BottomDockWidgetArea);
 
     // CS6 Essentials groups and order. The tab text is the panel title and the
     // tab icon reuses the panel's `window.panels.<name>` asset.
