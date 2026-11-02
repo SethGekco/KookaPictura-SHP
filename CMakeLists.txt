@@ -5,7 +5,7 @@
 
 cmake_minimum_required(VERSION 3.24)
 
-project(kooka_pictura VERSION 0.3.0 LANGUAGES CXX) # x-release-please-version
+project(kooka_pictura VERSION 0.4.0 LANGUAGES CXX) # x-release-please-version
 
 # Route local C++ compilation through sccache when it is installed. An explicit
 # -DCMAKE_CXX_COMPILER_LAUNCHER or the same-named environment variable wins: the

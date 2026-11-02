@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.4.0](https://github.com/KookaStudio/KookaPictura/compare/v0.3.0...v0.4.0) (2026-11-02)
+
+
+### Features
+
+* **filters:** implement De-Interlace ([#344](https://github.com/KookaStudio/KookaPictura/issues/344)) TASK-ALLOWS-DOCS ([48bbb1f](https://github.com/KookaStudio/KookaPictura/commit/48bbb1f7ee4dc9fb140ba2807cd7913fc5a7983c))
+* implement De-Interlace ([#344](https://github.com/KookaStudio/KookaPictura/issues/344)) ([#1128](https://github.com/KookaStudio/KookaPictura/issues/1128)) ([48bbb1f](https://github.com/KookaStudio/KookaPictura/commit/48bbb1f7ee4dc9fb140ba2807cd7913fc5a7983c))
+* **layers:** Auto-Blend Layers ([#583](https://github.com/KookaStudio/KookaPictura/issues/583)) ([#1112](https://github.com/KookaStudio/KookaPictura/issues/1112)) ([643ece8](https://github.com/KookaStudio/KookaPictura/commit/643ece8a2518477dcca1324cbb731a17e1f817d3))
+* open multiple files from the file dialog ([#1118](https://github.com/KookaStudio/KookaPictura/issues/1118)) ([#1119](https://github.com/KookaStudio/KookaPictura/issues/1119)) ([89bcb10](https://github.com/KookaStudio/KookaPictura/commit/89bcb107ba41c2099cf8e59ebc592aa4451734a3))
+
+
+### Bug Fixes
+
+* **codec:** read 16/32-bit layers from tagged layer info ([#1107](https://github.com/KookaStudio/KookaPictura/issues/1107)) ([#1109](https://github.com/KookaStudio/KookaPictura/issues/1109)) ([eb7eb5a](https://github.com/KookaStudio/KookaPictura/commit/eb7eb5aff85430b4fbcc00f1882f5a47842da859))
+* default the DX12 shader compiler to FXC ([#1104](https://github.com/KookaStudio/KookaPictura/issues/1104)) ([#1113](https://github.com/KookaStudio/KookaPictura/issues/1113)) ([ad7c626](https://github.com/KookaStudio/KookaPictura/commit/ad7c626a17fddd94047890142617414aa2c574f9))
+* document the unsigned snap install ([#1106](https://github.com/KookaStudio/KookaPictura/issues/1106)) ([#1108](https://github.com/KookaStudio/KookaPictura/issues/1108)) ([75d325b](https://github.com/KookaStudio/KookaPictura/commit/75d325b2982d3dff3bf83f42ef86160fb57cfe1e))
+* **filters:** composite the filter pane like the commit ([#801](https://github.com/KookaStudio/KookaPictura/issues/801)) ([#1122](https://github.com/KookaStudio/KookaPictura/issues/1122)) ([26e305f](https://github.com/KookaStudio/KookaPictura/commit/26e305f918c1a59bf12764c0db899c69f4576584))
+* **filters:** confine Liquify to the selection bounds ([#882](https://github.com/KookaStudio/KookaPictura/issues/882)) ([#1124](https://github.com/KookaStudio/KookaPictura/issues/1124)) ([9df3402](https://github.com/KookaStudio/KookaPictura/commit/9df340234c0d243ff5fc081e24203cf78bd13943))
+* **paint:** keep the stamp tools painting while the button is held ([#799](https://github.com/KookaStudio/KookaPictura/issues/799)) ([#1121](https://github.com/KookaStudio/KookaPictura/issues/1121)) ([dbfebc8](https://github.com/KookaStudio/KookaPictura/commit/dbfebc8aac011a965a6f6965addd80b1c5516f0a))
+* **snap:** show the unsigned snap's install command ([#1106](https://github.com/KookaStudio/KookaPictura/issues/1106)) ([75d325b](https://github.com/KookaStudio/KookaPictura/commit/75d325b2982d3dff3bf83f42ef86160fb57cfe1e))
+* **ui:** restore tool options without firing change signals ([#713](https://github.com/KookaStudio/KookaPictura/issues/713)) ([#1131](https://github.com/KookaStudio/KookaPictura/issues/1131)) ([4154884](https://github.com/KookaStudio/KookaPictura/commit/415488406ede02847e3428e87938ff6f99457166))
+
+
+### Performance Improvements
+
+* **app:** keep the UI responsive during undo ([#1067](https://github.com/KookaStudio/KookaPictura/issues/1067)) ([#1099](https://github.com/KookaStudio/KookaPictura/issues/1099)) ([1666806](https://github.com/KookaStudio/KookaPictura/commit/1666806dd389550851d135eef8908d9ec8b36a49))
+* **history:** keep plane stamps across captures ([#1126](https://github.com/KookaStudio/KookaPictura/issues/1126)) ([308d2cf](https://github.com/KookaStudio/KookaPictura/commit/308d2cfb340f609b3213c04b137706786b0b70f5))
+* keep GPU layer residency across history captures ([#1126](https://github.com/KookaStudio/KookaPictura/issues/1126)) ([#1127](https://github.com/KookaStudio/KookaPictura/issues/1127)) ([308d2cf](https://github.com/KookaStudio/KookaPictura/commit/308d2cfb340f609b3213c04b137706786b0b70f5))
+* **layers:** stop duplicate and undo freezing very large images ([#1123](https://github.com/KookaStudio/KookaPictura/issues/1123)) ([f572ac0](https://github.com/KookaStudio/KookaPictura/commit/f572ac027f002c7bbfb2c7e5ad1e5aed8f82f15f))
+* **render:** resolve the layer stack once per composite ([#1092](https://github.com/KookaStudio/KookaPictura/issues/1092)) ([#1117](https://github.com/KookaStudio/KookaPictura/issues/1117)) ([f576ecb](https://github.com/KookaStudio/KookaPictura/commit/f576ecb48dd1b3d9d1393c3ae67158872988143a))
+* stop duplicate and undo freezing very large images ([#1123](https://github.com/KookaStudio/KookaPictura/issues/1123)) ([#1125](https://github.com/KookaStudio/KookaPictura/issues/1125)) ([f572ac0](https://github.com/KookaStudio/KookaPictura/commit/f572ac027f002c7bbfb2c7e5ad1e5aed8f82f15f))
+
 ## [0.3.0](https://github.com/KookaStudio/KookaPictura/compare/v0.2.0...v0.3.0) (2026-10-31)
 
 
