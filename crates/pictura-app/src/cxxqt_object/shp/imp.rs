@@ -925,6 +925,10 @@ use window::*;
 mod frames;
 use frames::*;
 
+#[path = "authoring.rs"]
+mod authoring;
+pub(super) use authoring::{shp_convert, shp_new_document, shp_plan_sheet};
+
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
@@ -936,3 +940,7 @@ mod window_tests;
 #[cfg(test)]
 #[path = "frames_tests.rs"]
 mod frames_tests;
+
+#[cfg(test)]
+#[path = "authoring_tests.rs"]
+mod authoring_tests;

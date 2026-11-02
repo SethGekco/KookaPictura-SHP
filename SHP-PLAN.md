@@ -420,7 +420,8 @@ Phase 1, recorded as each slice landed:
 - **Saving a non-SHP document as `.shp` is refused, not converted.**
   `savePathNeedsFormatDialog` sends a plain Save of such a document to Save
   As, and the gate refuses the `.shp` path with the reason. Importing an
-  arbitrary image as a new SHP stays out of Phase 1.
+  arbitrary image as a new SHP stays out of Phase 1. (Superseded in Phase
+  2: Save As SHP converts it, interactively; see "Save As SHP" below.)
 - **An SHP whose sheet is over the import budget is refused on open**, from
   its header, before any frame is decoded. The budget is the one every
   other format meets (`ImageBudget`: one RGBA allocation of at most 2 GiB
@@ -588,4 +589,25 @@ Phase 2, authoring (recorded as each piece landed):
   (or window) is measured like "Frames loaded": over the limit it asks or
   refuses by the same stages and the same allowance; a whole sheet that
   would outgrow the limit is not turned into a paged one.
+- **File > New SHP** (frame width and height, frame count, palette: a
+  `.pal` path with Browse, empty for the built-in grey; the default palette
+  setting fills it in) makes a whole sheet of blank frames with no source
+  file, so every frame saves fresh (cropped, RLE-Zero only when smaller,
+  data aligned to 8). It goes through the size limit like an open. The
+  entry is inserted into the File menu right after New by `ShpSupport`
+  (it is not a command-table entry), so no upstream menu code changed.
+- **Save As SHP of an image that is not an SHP sheet converts it into a
+  new document** rather than changing the image. The options dialog takes
+  the frame size or columns x rows (kept consistent with the image), a gap
+  between cells, the frame count (cells read row by row), the palette
+  (pre-filled by the same resolution an open of the target path would use)
+  and how other colours map: nearest palette index with alpha under 128 as
+  index 0 (exactly Snap to Palette), or exact colours only, leaving the rest
+  to the save gate. The flattened CPU composite is cut into a new SHP
+  document (a new tab, size-checked), which is then saved through the
+  normal gate; the original image stays open, unchanged, and is not saved
+  (`saveActiveAs` returns false for it). Without dialogs (offscreen, the
+  control server) it is still refused with the reason, as in Phase 1.
+  Items 2 and 3 of the scope landed in one commit: they share the new
+  dialogs file and the "new sheet with no source" document path.
 

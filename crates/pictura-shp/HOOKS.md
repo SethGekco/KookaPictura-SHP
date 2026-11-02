@@ -16,7 +16,7 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/src/cxxqt_object/open_jobs/imp.rs` | `decode_image_with_options`: `shp::decode_shp` right after the file is read, before `decode_import` (so it wins over an installed Qt SHP plugin and skips `finalize_import`); `open_image_start`: takes `shp_open` and runs the decode inside `shp::with_open_request` |
 | `crates/pictura-app/src/cxxqt_object/impl_core.rs` | `revert`: the decode runs inside `shp::with_document_palette`, so a reverted SHP keeps its palette |
 | `crates/pictura-app/src/cxxqt_object/impl_core/save.rs` | `save`: an `shp` suffix goes to `shp::save_shp` before the native fallback |
-| `CMakeLists.txt` | the new shell sources (`shp_palettes`, `shp_support`, `image_view_shp`, `panels/shp_{frames,palette}_panel`) |
+| `CMakeLists.txt` | the new shell sources (`shp_authoring`, `shp_palettes`, `shp_support`, `image_view_shp`, `panels/shp_{frames,palette}_panel`) |
 | `crates/pictura-app/cpp/tests/CMakeLists.txt` | `tst_shp` in the suite list |
 | `crates/pictura-app/cpp/frame_build.cpp` | `registerPanel(ShpSupport::install(this, colorState_)->dock(), Qt::BottomDockWidgetArea)` and its include |
 | `crates/pictura-app/cpp/frame_session.cpp` | `retargetDock` calls `ShpSupport::setView`, `refreshDock` calls `ShpSupport::refresh`; one include |
@@ -25,7 +25,7 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/cpp/image_view.h` | the `ShpGrid` struct, `setShpGrid`/`shpGrid`, `paintShpGrid` and the `shpGrid_` member |
 | `crates/pictura-app/cpp/image_view.cpp` | `paintEvent` calls `paintShpGrid(painter)` before the guides |
 | `crates/pictura-app/cpp/dialogs.{h,cpp}` | `shp` in `isKnownImageSuffix`; "Westwood SHP (TS/RA2) (*.SHP)" as save filter 8 (before All Formats) and in the open filters, `*.SHP` in both All Formats; `defaultSuffixForFilter(8)`; `defaultSaveFilterIndex` returns 8 for an SHP sheet; `savePathNeedsFormatDialog` sends an `.shp` path to Save As unless the document is an SHP sheet; two includes; doc comments |
-| `crates/pictura-app/cpp/frame.cpp` | `saveActiveAs`: an `.shp` path runs `ShpSupport::saveGate` first; one include |
+| `crates/pictura-app/cpp/frame.cpp` | `saveActiveAs`: an `.shp` path runs `ShpSupport::saveGate(view, true, path)` first (the path lets it convert an image that is not an SHP sheet into a new SHP document); one include |
 | `crates/pictura-app/cpp/frame_preferences.cpp` | `showPreferences`: `addPage(tr("Advanced"), ShpSupport::advancedPage(...))` (the SHP size-limit settings); one include |
 | `crates/pictura-app/cpp/frame_menus_image.cpp` | `applyImageSize` (Image Size handler and executor) and the Canvas Size handler and executor call `ShpSupport::allowSize(view, width, height)` first; one include |
 | `crates/pictura-app/cpp/control_server.cpp` | `dispatch`: a `ShpSupport::Quiet` scope around `route` (no size-limit dialogs), and a size-limit refusal answers `refused` with its reason; one include |
@@ -36,9 +36,11 @@ files Kooka Pictura upstream also changes; check them first after
 
 Everything else for SHP documents lives in new files:
 `crates/pictura-app/src/cxxqt_object/shp.rs` (bridge declarations) and
-`shp/{imp,window,tests,window_tests}.rs`, `crates/pictura-shp/src/{sheet,resource}.rs`, and in
+`shp/{imp,window,frames,authoring}.rs` with their `*_tests.rs`, `crates/pictura-shp/src/{sheet,resource}.rs`, and in
 the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP opens with),
-`cpp/shp_support.{h,cpp}` (the dock, `,`/`.` stepping, paging, the save gate),
+`cpp/shp_support.{h,cpp}` (the dock, `,`/`.` stepping, paging, frame operations, the save gate,
+the File > New SHP menu entry, inserted after File > New at runtime),
+`cpp/shp_authoring.{h,cpp}` (the New SHP and Save As SHP dialogs),
 `cpp/panels/shp_{frames,palette}_panel.{h,cpp}`, `cpp/image_view_shp.cpp`
 (the frame grid) and `cpp/tests/tst_shp.cpp`.
 

@@ -577,8 +577,10 @@ bool PicturaMainWindow::saveActiveAs(const QString& path)
     if (!view || path.isEmpty() || !isWritableSavePath(path)) {
         return false;
     }
-    // KookaPictura-SHP fork: off-palette and gutter pixels are fixed or refused first.
-    if (isShpPath(path) && !(ShpSupport::of(this) && ShpSupport::of(this)->saveGate(view))) {
+    // KookaPictura-SHP fork: off-palette and gutter pixels are fixed or refused first,
+    // and an image that is not an SHP sheet is converted into a new one.
+    if (isShpPath(path)
+        && !(ShpSupport::of(this) && ShpSupport::of(this)->saveGate(view, true, path))) {
         return false;
     }
     const QString name = QFileInfo(path).fileName();

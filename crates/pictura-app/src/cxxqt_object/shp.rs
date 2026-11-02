@@ -227,6 +227,40 @@ pub mod ffi {
             allowance: u64,
         ) -> i32;
 
+        /// What a new sheet of `frames` frames of `width` x `height` needs,
+        /// measured against the size limit; `valid` is false when the SHP
+        /// format cannot hold it.
+        fn shp_plan_sheet(width: i32, height: i32, frames: i32) -> ShpPlan;
+
+        /// File > New SHP: make `view`'s document `frames` blank frames of
+        /// `width` x `height` drawn in the palette at `palette` (empty: the
+        /// grey fallback). False with the reason in `shp_last_error`.
+        fn shp_new_document(
+            view: Pin<&mut PictureView>,
+            name: &QString,
+            width: i32,
+            height: i32,
+            frames: i32,
+            palette: &QString,
+            allowance: u64,
+        ) -> bool;
+
+        /// Save As SHP of an image that is not an SHP: make `view`'s
+        /// document the SHP sheet of `source`'s flattened image cut into
+        /// frames. `cut` is frame width, height, columns, rows, gutter and
+        /// frame count (cells read row by row). With `nearest`, colours that
+        /// are not palette colours become the nearest index (alpha under
+        /// 128: index 0); otherwise the save gate reports them.
+        fn shp_convert(
+            view: Pin<&mut PictureView>,
+            source: &PictureView,
+            name: &QString,
+            cut: &[i32],
+            palette: &QString,
+            nearest: bool,
+            allowance: u64,
+        ) -> bool;
+
         /// Test seam: the size limit and available memory in bytes (0 keeps
         /// the real value).
         fn shp_set_test_limits(limit: u64, available: u64);

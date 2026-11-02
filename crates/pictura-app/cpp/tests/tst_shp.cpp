@@ -11,6 +11,7 @@
 #include "image_view.h"
 #include "panels/shp_frames_panel.h"
 #include "panels/shp_palette_panel.h"
+#include "shp_authoring.h"
 #include "shp_palettes.h"
 #include "shp_support.h"
 
@@ -24,6 +25,9 @@
 #include <QtCore/QTimer>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QComboBox>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QMenuBar>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QMessageBox>
@@ -239,6 +243,9 @@ private slots:
     void frameOpButtonsEditTheSheetAndUndo();
     void reverseUsesTheSelectedRange();
     void aFrameOpPastTheLimitIsRefusedWithoutTheSetting();
+    void newShpMakesBlankFramesThatSaveAndReopen();
+    void newShpIsInTheFileMenu();
+    void saveAsShpConvertsAnImageIntoANewDocument();
 
 private:
     pictura::PictureView* open();
@@ -944,6 +951,102 @@ void ShpTest::aFrameOpPastTheLimitIsRefusedWithoutTheSetting()
     QVERIFY(!support_->frameOp(QStringLiteral("duplicate"), 0, 1));
     QCOMPARE(frameCount(*view), kFrames + 2);
     QVERIFY(support_->lastGateMessage().contains(QStringLiteral("Allow SHP files over")));
+}
+
+void ShpTest::newShpMakesBlankFramesThatSaveAndReopen()
+{
+    const QString pal = dir_.filePath(QStringLiteral("gtank.pal"));
+    QVERIFY(support_->newShp(7, 6, 3, pal));
+    pictura::PictureView* view = window_->activeView();
+    QVERIFY(view);
+    const pictura::ShpInfo info = pictura::shp_info(*view);
+    QVERIFY(info.valid);
+    QCOMPARE(info.frames, 3);
+    QCOMPARE(info.width, 7);
+    QCOMPARE(info.palette_name, QStringLiteral("gtank.pal"));
+    QVERIFY(!info.has_source);
+    window_->refresh();
+    QTRY_COMPARE(support_->frames()->frameCount(), 3);
+    // A dab of index 22 in frame 2, then Save As: a valid SHP that reopens.
+    const rust::Vec<uint32_t> unique = pictura::shp_palette_unique(*view);
+    const QRect cell = support_->frames()->cellRect(2);
+    QVERIFY(dab(view, unique[22] | 0xFF000000u, cell.x() + 3, cell.y() + 2));
+    const QString out = dir_.filePath(QStringLiteral("made.shp"));
+    QVERIFY(window_->saveActiveAs(out));
+    QVERIFY(pictura::shp_sniff_file(out));
+    QVERIFY(window_->openDocumentAtPath(out));
+    window_->refresh();
+    pictura::PictureView* back = window_->activeView();
+    QVERIFY(back && back != view);
+    QCOMPARE(pictura::shp_info(*back).frames, 3);
+    const QRect again = support_->frames()->cellRect(2);
+    // Reopened in whatever palette resolves for it: the index is what stays.
+    QCOMPARE(pictura::shp_index_of(*back, back->composite_argb(again.x() + 3, again.y() + 2)),
+             22);
+    // Outside the format: refused with the reason.
+    QVERIFY(!support_->newShp(5000, 6, 3, pal));
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("4096")));
+}
+
+void ShpTest::newShpIsInTheFileMenu()
+{
+    QAction* action = support_->newShpAction();
+    QVERIFY(action);
+    QMenu* file = nullptr;
+    for (QAction* top : window_->menuBar()->actions()) {
+        if (top->text().remove(QLatin1Char('&')) == QStringLiteral("File")) {
+            file = top->menu();
+        }
+    }
+    QVERIFY(file);
+    const QList<QAction*> actions = file->actions();
+    const qsizetype at = actions.indexOf(action);
+    QVERIFY(at > 0);
+    QCOMPARE(actions.at(at - 1)->data().toString(), QStringLiteral("file.new"));
+}
+
+void ShpTest::saveAsShpConvertsAnImageIntoANewDocument()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    // A 12x5 image: two 5x5 frames with a 2 px gap.
+    QVERIFY(window_->newDocument(QStringLiteral("Plain"), 12, 5, QStringLiteral("rgb"), 8,
+                                 QStringLiteral("white")));
+    pictura::PictureView* plain = window_->activeView();
+    QVERIFY(plain);
+    const int documents = window_->documentCount();
+    bool seen = false;
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, [&] {
+        for (QWidget* widget : QApplication::topLevelWidgets()) {
+            auto* dialog = qobject_cast<pictura::ShpConvertDialog*>(widget);
+            if (!dialog || !dialog->isVisible() || seen) {
+                continue;
+            }
+            seen = true;
+            dialog->gutterBox()->setValue(2);
+            dialog->colsBox()->setValue(2);
+            QCOMPARE(dialog->widthBox()->value(), 5);
+            QCOMPARE(dialog->framesBox()->value(), 2);
+            dialog->paletteField()->edit()->setText(dir_.filePath(QStringLiteral("gtank.pal")));
+            dialog->accept();
+        }
+    });
+    poll.start(20);
+    const QString out = dir_.filePath(QStringLiteral("converted.shp"));
+    QVERIFY(!window_->saveActiveAs(out)); // the image itself is not saved
+    QVERIFY(seen);
+    QVERIFY(support_->savedCopy());
+    QVERIFY(pictura::shp_sniff_file(out));
+    QCOMPARE(window_->documentCount(), documents + 1);
+    pictura::PictureView* made = window_->activeView();
+    QVERIFY(made && made != plain);
+    QCOMPARE(pictura::shp_info(*made).frames, 2);
+    QCOMPARE(pictura::shp_info(*made).width, 5);
+    QCOMPARE(window_->documentPath(window_->activeDocumentIndex()), out);
+    QVERIFY(!pictura::shp_info(*plain).valid);
+    QCOMPARE(plain->document_width(), 12);
+    // White is a palette colour's nearest index: nothing is off-palette.
+    QCOMPARE(pictura::shp_check(*made).off_palette, 0);
 }
 
 QTEST_MAIN(ShpTest)

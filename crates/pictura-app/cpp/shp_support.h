@@ -8,6 +8,7 @@
 #include <QtCore/QPointer>
 #include <QtCore/QString>
 
+class QAction;
 class QDockWidget;
 class QMainWindow;
 class QShortcut;
@@ -51,7 +52,24 @@ public:
     // platform (offscreen, control server) nothing is fixed silently: the
     // save is refused and the reason is in `lastGateMessage()`; so it is with
     // `dialogs` false (the control server).
-    bool saveGate(PictureView* view, bool dialogs = true);
+    // An image that is not an SHP sheet is first converted (see
+    // convertForSave), interactively only.
+    bool saveGate(PictureView* view, bool dialogs = true, const QString& path = QString());
+
+    // File > New SHP: a new document of `frames` blank frames of `width` x
+    // `height` in the palette at `palette` (empty: built-in grey), after the
+    // size limit. False, with the reason in lastGateMessage(), when not.
+    bool newShp(int width, int height, int frames, const QString& palette);
+    // The New SHP dialog, then newShp().
+    void newShpWithDialog();
+    QAction* newShpAction() const { return newShpAction_; }
+    // Save As SHP of `source`, an image that is not an SHP sheet: ask how
+    // to cut it into frames, make the SHP sheet as a new document (the image
+    // stays as it was) and save that through the normal gate. Returns false
+    // in any case, so the caller does not save `source`; savedCopy() says
+    // whether the new document was saved.
+    bool convertForSave(PictureView* source, const QString& path, bool dialogs);
+    bool savedCopy() const { return savedCopy_; }
 
     // Show the window of a paged SHP that holds file frame `frame` (`span`
     // frames; 0 keeps the document's window size), then focus the frame.
@@ -123,6 +141,8 @@ signals:
 
 private:
     ShpSupport(QMainWindow* frame, ColorState* colors);
+    // Menu entries the command table does not hold: File > New SHP.
+    void installMenus();
     void message(const QString& text);
     bool interactive() const;
     void showOffPalette(PictureView* view);
@@ -150,6 +170,8 @@ private:
     QDockWidget* dock_ = nullptr;
     ShpFramesPanel* frames_ = nullptr;
     ShpPalettePanel* palette_ = nullptr;
+    QAction* newShpAction_ = nullptr;
+    bool savedCopy_ = false;
     QShortcut* prevKey_ = nullptr;
     QShortcut* nextKey_ = nullptr;
     QPointer<PictureView> view_;

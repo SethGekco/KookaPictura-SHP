@@ -28,6 +28,9 @@ effect art directly.
   each time and a hard stop at the memory actually available.
   The Frames panel inserts, duplicates, deletes, moves (buttons or drag)
   and reverses frames; a moved frame keeps its stored bytes on save.
+  File > New SHP starts a sprite from blank frames, and Save As SHP turns
+  any image or sprite sheet into a new SHP document (frame size or grid,
+  palette, nearest-colour mapping).
   Checked against 4,819 real SHPs: every valid one saves back
   byte-identical. Next: onion skin, playback preview, shadow tools,
   house-colour preview (see [`SHP-PLAN.md`](SHP-PLAN.md)).

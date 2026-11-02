@@ -3,7 +3,11 @@
 
 #include "shp_support.h"
 
+#include "commands.h"
+#include "command_ids.h"
 #include "frame.h"
+#include "shp_authoring.h"
+#include "shp_palettes.h"
 #include "panels/shp_frames_panel.h"
 #include "panels/shp_palette_panel.h"
 
@@ -17,6 +21,7 @@
 #include <QtWidgets/QDockWidget>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QMainWindow>
+#include <QtWidgets/QMenu>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QSplitter>
@@ -24,6 +29,7 @@
 #include <QtWidgets/QVBoxLayout>
 
 #include <algorithm>
+#include <array>
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
@@ -112,6 +118,25 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     nextKey_->setEnabled(false);
     connect(prevKey_, &QShortcut::activated, this, [this] { frames_->step(-1); });
     connect(nextKey_, &QShortcut::activated, this, [this] { frames_->step(1); });
+    installMenus();
+}
+
+void ShpSupport::installMenus()
+{
+    newShpAction_ = new QAction(tr("New SHP…"), this);
+    newShpAction_->setObjectName(QStringLiteral("shpNewAction"));
+    connect(newShpAction_, &QAction::triggered, this, [this] { newShpWithDialog(); });
+    auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+    QAction* fileNew = window && window->registry()
+        ? window->registry()->action(QLatin1String(command_ids::FileNew))
+        : nullptr;
+    auto* menu = fileNew ? qobject_cast<QMenu*>(fileNew->parent()) : nullptr;
+    if (!menu) {
+        return;
+    }
+    const QList<QAction*> actions = menu->actions();
+    const qsizetype at = actions.indexOf(fileNew);
+    menu->insertAction(actions.value(at + 1), newShpAction_);
 }
 
 ShpSupport* ShpSupport::install(QMainWindow* frame, ColorState* colors)
@@ -203,9 +228,114 @@ void ShpSupport::showOffPalette(PictureView* view)
     }
 }
 
-bool ShpSupport::saveGate(PictureView* view, bool dialogs)
+bool ShpSupport::saveGate(PictureView* view, bool dialogs, const QString& path)
 {
+    savedCopy_ = false;
+    if (view && !shp_info(*view).valid && !path.isEmpty()) {
+        return convertForSave(view, path, dialogs);
+    }
     return cleanGate(view, dialogs, false);
+}
+
+bool ShpSupport::newShp(int width, int height, int frames, const QString& palette)
+{
+    gateMessage_.clear();
+    auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+    const ShpPlan plan = shp_plan_sheet(width, height, frames);
+    if (!window || !plan.valid) {
+        gateMessage_ = tr("An SHP holds 1 to 4096 frames of 1 to 4096 pixels a side.");
+        message(gateMessage_);
+        return false;
+    }
+    auto* view = new PictureView(window);
+    switch (confirmLimit(plan, 0, tr("A new SHP of %1 frames").arg(frames), tr("Create"),
+                         QString())) {
+    case Verdict::Go:
+        grant(view, plan.needed, plan.stage);
+        break;
+    case Verdict::Refused:
+        delete view;
+        gateMessage_ = limitMessage_;
+        return refuseLimit();
+    default:
+        delete view;
+        return false;
+    }
+    if (!shp_new_document(*view, tr("Untitled"), width, height, frames, palette,
+                          allowanceOf(view))) {
+        delete view;
+        gateMessage_ = shp_last_error();
+        message(gateMessage_);
+        return false;
+    }
+    window->addDocument(view, QString());
+    return true;
+}
+
+void ShpSupport::newShpWithDialog()
+{
+    ShpNewDialog dialog(defaultShpPalette(), frame_);
+    if (dialog.exec() == QDialog::Accepted) {
+        newShp(dialog.frameWidth(), dialog.frameHeight(), dialog.frames(), dialog.palette());
+    }
+}
+
+bool ShpSupport::convertForSave(PictureView* source, const QString& path, bool dialogs)
+{
+    gateMessage_.clear();
+    savedCopy_ = false;
+    auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+    if (!window || !source || !dialogs || !asksNow()) {
+        gateMessage_ = tr("This image is not an SHP sheet. Saving it as SHP converts it with an "
+                          "options dialog (frame size, palette), which needs an interactive "
+                          "session.");
+        message(gateMessage_);
+        return false;
+    }
+    ShpConvertDialog dialog(source->document_width(), source->document_height(),
+                            resolveShpPalette(path), frame_);
+    if (dialog.exec() != QDialog::Accepted) {
+        gateMessage_ = tr("Save As SHP was cancelled.");
+        return false;
+    }
+    const QList<int> cut = dialog.cut();
+    const ShpPlan plan = shp_plan_sheet(cut[0], cut[1], cut[5]);
+    if (!plan.valid) {
+        gateMessage_ = tr("An SHP holds 1 to 4096 frames of 1 to 4096 pixels a side.");
+        QMessageBox::warning(frame_, tr("Save As SHP"), gateMessage_);
+        return false;
+    }
+    auto* target = new PictureView(window);
+    switch (confirmLimit(plan, 0, tr("Converting to SHP"), tr("Convert"), QString())) {
+    case Verdict::Go:
+        grant(target, plan.needed, plan.stage);
+        break;
+    case Verdict::Refused:
+        delete target;
+        gateMessage_ = limitMessage_;
+        return refuseLimit();
+    default:
+        delete target;
+        return false;
+    }
+    const std::array<int32_t, 6> values = {cut[0], cut[1], cut[2], cut[3], cut[4], cut[5]};
+    if (!shp_convert(*target, *source, QFileInfo(path).completeBaseName(),
+                     ::rust::Slice<const int32_t>(values.data(), values.size()),
+                     dialog.palette(), dialog.nearest(), allowanceOf(target))) {
+        delete target;
+        gateMessage_ = shp_last_error();
+        QMessageBox::warning(frame_, tr("Save As SHP"), gateMessage_);
+        return false;
+    }
+    window->addDocument(target, QString());
+    // The new document is active now: the normal save, gate included.
+    savedCopy_ = window->saveActiveAs(path);
+    if (savedCopy_) {
+        gateMessage_ = tr("Saved %1 from a new SHP document; the original image is unchanged.")
+                           .arg(QFileInfo(path).fileName());
+        message(gateMessage_);
+    }
+    return false;
 }
 
 void ShpSupport::refreshFrame()

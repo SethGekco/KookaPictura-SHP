@@ -225,6 +225,20 @@ pub(in crate::cxxqt_object) fn window_document(
 ) -> (Document, History, LayerTarget) {
     let unique = unique_colours(palette);
     let rgba = sheet::to_sheet(layout, planes, &unique);
+    sheet_document(name, layout, rgba, data, gpu, label)
+}
+
+/// The document for a sheet already drawn as RGBA (`layout`'s sheet size),
+/// with the resource `data` and a fresh history whose first state is
+/// `label`.
+pub(in crate::cxxqt_object) fn sheet_document(
+    name: &str,
+    layout: &Layout,
+    rgba: Vec<u8>,
+    data: &[u8],
+    gpu: bool,
+    label: &str,
+) -> (Document, History, LayerTarget) {
     let (sw, sh) = (layout.sheet_width() as u32, layout.sheet_height() as u32);
     // No finalize_import: an all-opaque sheet must keep its alpha channel,
     // or index 0 could never be painted. No ICC either: the sheet is sRGB.

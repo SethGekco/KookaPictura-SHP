@@ -530,6 +530,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/image_view_annotations.cpp
     crates/pictura-app/cpp/image_view_guides.cpp
     crates/pictura-app/cpp/image_view_shp.cpp
+    crates/pictura-app/cpp/shp_authoring.cpp
     crates/pictura-app/cpp/shp_palettes.cpp
     crates/pictura-app/cpp/shp_support.cpp
     crates/pictura-app/cpp/image_view_smart_guides.cpp
@@ -847,6 +848,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/notes_panel.h
     crates/pictura-app/cpp/panels/shp_frames_panel.h
     crates/pictura-app/cpp/panels/shp_palette_panel.h
+    crates/pictura-app/cpp/shp_authoring.h
     crates/pictura-app/cpp/shp_palettes.h
     crates/pictura-app/cpp/shp_support.h
     crates/pictura-app/cpp/panels/histogram_panel.h
