@@ -27,7 +27,8 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/cpp/dialogs.{h,cpp}` | `shp` in `isKnownImageSuffix`; "Westwood SHP (TS/RA2) (*.SHP)" as save filter 8 (before All Formats) and in the open filters, `*.SHP` in both All Formats; `defaultSuffixForFilter(8)`; `defaultSaveFilterIndex` returns 8 for an SHP sheet; `savePathNeedsFormatDialog` sends an `.shp` path to Save As unless the document is an SHP sheet; two includes; doc comments |
 | `crates/pictura-app/cpp/frame.cpp` | `saveActiveAs`: an `.shp` path runs `ShpSupport::saveGate(view, true, path)` first (the path lets it convert an image that is not an SHP sheet into a new SHP document); one include |
 | `crates/pictura-app/cpp/frame_preferences.cpp` | `showPreferences`: `addPage(tr("Advanced"), ShpSupport::advancedPage(...))` (the SHP size-limit settings); one include |
-| `crates/pictura-app/cpp/frame_menus_image.cpp` | `applyImageSize` (Image Size handler and executor) and the Canvas Size handler and executor call `ShpSupport::allowSize(view, width, height)` first; one include |
+| `crates/pictura-app/cpp/frame_transform_lock.cpp` | the registry's blocked provider also blocks what `ShpSupport::blocks(this, spec.id)` names (Image Size, Canvas Size, Crop, Trim, Reveal All, rotations, flips, mode changes while the active document is an SHP sheet); one include |
+| `crates/pictura-app/cpp/control_server_commands.cpp` | `run_command` answers `refused` with `ShpSupport::blockedReason()` when `ShpSupport::blocks(frame_, id)` (its replay skips the registry's blocked gate); one include |
 | `crates/pictura-app/cpp/control_server.cpp` | `dispatch`: a `ShpSupport::Quiet` scope around `route` (no size-limit dialogs), and a size-limit refusal answers `refused` with its reason; one include |
 | `crates/pictura-app/cpp/selftest.cpp` | `prefs_pages`: the expected page list ends with "Advanced" |
 | `crates/pictura-app/cpp/frame_open.cpp` | `saveRunsOnWorker`: `shp` saves in place (the worker writes only PSD/PSB) |
@@ -39,8 +40,9 @@ Everything else for SHP documents lives in new files:
 `shp/{imp,window,frames,authoring}.rs` with their `*_tests.rs`, `crates/pictura-shp/src/{sheet,resource}.rs`, and in
 the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP opens with),
 `cpp/shp_support.{h,cpp}` (the dock, `,`/`.` stepping, paging, frame operations, the save gate,
-the File > New SHP menu entry, inserted after File > New at runtime),
-`cpp/shp_authoring.{h,cpp}` (the New SHP and Save As SHP dialogs),
+the File > New SHP and Image > Frame Size menu entries, inserted at runtime after
+File > New and Image > Canvas Size),
+`cpp/shp_authoring.{h,cpp}` (the New SHP, Save As SHP and Frame Size dialogs),
 `cpp/shp_undo_focus.{h,cpp}` (Undo/Redo focus the frame they changed),
 `cpp/panels/shp_{frames,palette,playback}_panel.{h,cpp}`, `cpp/image_view_shp.cpp`
 (the frame grid, onion skin and off-palette marks) and `cpp/tests/{tst_shp,tst_shp_view}.cpp` with their

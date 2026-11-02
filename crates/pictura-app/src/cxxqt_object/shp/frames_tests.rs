@@ -260,3 +260,39 @@ fn a_paged_operation_refuses_an_off_palette_window() {
     assert!(err.contains("not palette colours"), "{err}");
     assert_eq!(doc(&rust).image_resources, before);
 }
+
+#[test]
+fn frame_size_moves_every_frame_by_the_anchor_and_undoes() {
+    let mut rust = opened(sprite(), choice());
+    let before = doc(&rust).clone();
+    let (nw, nh) = (W + 2, H - 2);
+    // Centred: one column of padding before, one row cropped off the top.
+    assert_eq!(
+        frame_size_rust(&mut rust, nw as i32, nh as i32, (1, 1), &roomy(), 0),
+        Ok(1)
+    );
+    rust.apply_edit("Frame Size", Edit::Full);
+    let header = header(doc(&rust)).expect("still an SHP");
+    assert_eq!((header.layout.width, header.layout.height), (nw, nh));
+    let frames = saved(&rust);
+    assert_eq!(frames.len(), FRAMES);
+    for (k, frame) in frames.iter().enumerate() {
+        let old = &planes()[k];
+        for y in 0..nh {
+            assert_eq!(frame[y * nw], 0, "padding column");
+            assert_eq!(frame[y * nw + nw - 1], 0, "padding column");
+            assert_eq!(&frame[y * nw + 1..y * nw + 1 + W], &old[(y + 1) * W..(y + 2) * W]);
+        }
+    }
+    // The same size again changes nothing; a paged sprite is refused.
+    assert_eq!(
+        frame_size_rust(&mut rust, nw as i32, nh as i32, (1, 1), &roomy(), 0),
+        Ok(0)
+    );
+    undo(&mut rust);
+    assert_eq!(doc(&rust).image_resources, before.image_resources);
+    assert_eq!(saved(&rust), planes());
+    let mut big = paged(&sprite());
+    assert!(frame_size_rust(&mut big, 4, 4, (0, 0), &roomy(), 0).is_err());
+    assert!(frame_size_rust(&mut rust, 0, 4, (0, 0), &roomy(), 0).is_err());
+}

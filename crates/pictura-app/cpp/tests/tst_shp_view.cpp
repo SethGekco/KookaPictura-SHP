@@ -5,6 +5,9 @@
 
 #include <QtTest/QtTest>
 
+#include "commands.h"
+#include "control_server.h"
+#include "control_test_client.h"
 #include "frame.h"
 #include "image_view.h"
 #include "panels/shp_frames_panel.h"
@@ -17,7 +20,10 @@
 #include "pictura_app/src/cxxqt_object/eyedropper_sample.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
 
+#include <QtCore/QJsonObject>
 #include <QtCore/QTemporaryDir>
+#include <QtGui/QAction>
+#include <QtGui/QImage>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QSpinBox>
 
@@ -58,6 +64,8 @@ private slots:
     void playbackDecodesFramesOffAPagedSheet();
     void undoAndRedoFocusTheFrameTheyChanged();
     void offPaletteMarksFollowEditsAndSnapFrameFixesOneFrame();
+    void sheetCommandsAreDisabledForAnShpOnly();
+    void frameSizeResizesEveryFrameAsOneStep();
 };
 
 void ShpViewTest::init()
@@ -347,6 +355,88 @@ void ShpViewTest::offPaletteMarksFollowEditsAndSnapFrameFixesOneFrame()
     QCOMPARE(pictura::shp_check(*view).off_frames.size(), size_t(2));
     marks->setChecked(false);
     QVERIFY(canvas->shpGrid().offPalette.isEmpty());
+}
+
+void ShpViewTest::sheetCommandsAreDisabledForAnShpOnly()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QTRY_COMPARE(support_->frames()->frameCount(), kFrames);
+    pictura::CommandRegistry* registry = window_->registry();
+    const QStringList ids = {
+        QStringLiteral("image.image.size"),   QStringLiteral("image.canvas.size"),
+        QStringLiteral("image.crop"),         QStringLiteral("image.trim"),
+        QStringLiteral("image.rotate90cw"),
+        QStringLiteral("image.rotate180"),    QStringLiteral("image.flipHorizontal"),
+        QStringLiteral("image.mode.grayscale"), QStringLiteral("image.mode.16.bits"),
+    };
+    for (const QString& id : ids) {
+        QAction* action = registry->action(id);
+        QVERIFY2(action, qPrintable(id));
+        QVERIFY2(!action->isEnabled(), qPrintable(id));
+        QVERIFY2(pictura::ShpSupport::blocks(window_.get(), id), qPrintable(id));
+    }
+    QVERIFY(pictura::ShpSupport::blocks(window_.get(), QStringLiteral("image.revealAll")));
+    QVERIFY(!registry->dispatch(QStringLiteral("image.rotate180")));
+    QCOMPARE(view->document_width(), 4 * kW + 3);
+    QVERIFY(!pictura::ShpSupport::blocks(window_.get(), QStringLiteral("edit.fill")));
+    QVERIFY(support_->frameSizeAction()->isEnabled());
+
+    // The control server refuses them too (its replay skips the registry's gate).
+    pictura::ControlServer server(window_.get(), dir_.filePath(QStringLiteral("c.sock")));
+    const QJsonObject resize{{QStringLiteral("id"), QStringLiteral("image.image.size")},
+                             {QStringLiteral("params"),
+                              QJsonObject{{QStringLiteral("width"), 20},
+                                          {QStringLiteral("height"), 10},
+                                          {QStringLiteral("constrainProportions"), false}}}};
+    QCOMPARE(pictura::test::errorCode(server.dispatch(QStringLiteral("run_command"), resize)),
+             QStringLiteral("refused"));
+    QCOMPARE(view->document_width(), 4 * kW + 3);
+
+    // Another document that is not an SHP gets them back.
+    const QString png = dir_.filePath(QStringLiteral("plain.png"));
+    QImage plain(8, 8, QImage::Format_ARGB32);
+    plain.fill(Qt::red);
+    QVERIFY(plain.save(png));
+    QVERIFY(window_->openDocumentAtPath(png));
+    window_->refresh();
+    QTRY_VERIFY(registry->action(QStringLiteral("image.image.size"))->isEnabled());
+    QVERIFY(registry->action(QStringLiteral("image.mode.grayscale"))->isEnabled());
+    QVERIFY(!support_->frameSizeAction()->isEnabled());
+    QVERIFY(pictura::test::succeeded(server.dispatch(QStringLiteral("run_command"), resize)));
+}
+
+void ShpViewTest::frameSizeResizesEveryFrameAsOneStep()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    frames->setSelectsCell(false);
+    const QRect old3 = frames->cellRect(3);
+    const quint32 colour = view->composite_argb(old3.x() + 1, old3.y() + 1);
+    const int history = view->history_index();
+
+    // Two columns wider, centred: frame pixels move one column right.
+    QVERIFY(support_->frameSize(kW + 2, kH, 4));
+    QCOMPARE(pictura::shp_info(*view).width, kW + 2);
+    QCOMPARE(view->history_index(), history + 1);
+    QCOMPARE(view->history_label(view->history_index()), QStringLiteral("Frame Size"));
+    QTRY_COMPARE(frames->cellRect(3).width(), kW + 2);
+    const QRect new3 = frames->cellRect(3);
+    QCOMPARE(view->composite_argb(new3.x() + 2, new3.y() + 1), colour);
+    QCOMPARE(view->composite_argb(new3.x(), new3.y() + 1) >> 24, 0u);
+    const QString out = dir_.filePath(QStringLiteral("wide.shp"));
+    QVERIFY(window_->saveActiveAs(out));
+    const QByteArray bytes = readFile(out);
+    QCOMPARE(int(quint8(bytes[2])) | (int(quint8(bytes[3])) << 8), kW + 2);
+
+    QVERIFY(view->undo());
+    QCOMPARE(pictura::shp_info(*view).width, kW);
+    QCOMPARE(view->composite_argb(old3.x() + 1, old3.y() + 1), colour);
+    // Out of range is refused with a reason.
+    QVERIFY(!support_->frameSize(0, kH, 4));
+    QVERIFY(!support_->lastGateMessage().isEmpty());
 }
 
 QTEST_MAIN(ShpViewTest)

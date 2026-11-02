@@ -801,30 +801,6 @@ pub(super) fn shp_plan_window(view: &PictureView, frame: i32, count: i32) -> Shp
     .unwrap_or_else(invalid_plan)
 }
 
-pub(super) fn shp_plan_size(view: &PictureView, width: i32, height: i32) -> ShpPlan {
-    let Some(header) = view_header(view) else {
-        return invalid_plan();
-    };
-    let limits = Limits::current();
-    let needed =
-        u64::from(width.max(0).unsigned_abs()) * u64::from(height.max(0).unsigned_abs()) * 4;
-    let need = limits.assess(needed);
-    ShpPlan {
-        valid: true,
-        width: width.max(0),
-        height: height.max(0),
-        total: header.total as i32,
-        first: header.first as i32,
-        count: header.layout.frames as i32,
-        needed,
-        limit: limits.limit,
-        available: limits.available.unwrap_or(0),
-        estimate: need.estimate,
-        stage: i32::from(need.stage),
-        floor_ok: need.floor_ok,
-    }
-}
-
 pub(super) fn shp_set_open_allowance(mut view: Pin<&mut PictureView>, bytes: u64) {
     view.as_mut()
         .rust_mut()
@@ -980,6 +956,7 @@ use window::*;
 #[path = "frames.rs"]
 mod frames;
 use frames::*;
+pub(super) use frames::{shp_frame_size, shp_plan_frame_size};
 
 #[path = "authoring.rs"]
 mod authoring;

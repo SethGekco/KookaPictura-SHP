@@ -8,6 +8,7 @@
 // never locks.
 
 #include "frame_includes.h"
+#include "shp_support.h"
 
 namespace pictura {
 
@@ -43,7 +44,9 @@ void PicturaMainWindow::installTransformLock()
         return;
     }
     registry_->setBlockedProvider([this](const CommandSpec& spec) {
-        return transformLocked_ && locksDocumentEdit(spec);
+        return (transformLocked_ && locksDocumentEdit(spec))
+               // KookaPictura-SHP fork: commands that would reshape an SHP sheet.
+               || ShpSupport::blocks(this, spec.id);
     });
     tools_->setTransformDecisionPrompt([this]() { return askApplyTransform(this); });
     tools_->setCropDecisionPrompt([this]() { return askCropImage(this); });

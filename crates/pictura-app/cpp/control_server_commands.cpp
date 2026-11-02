@@ -15,6 +15,7 @@
 #include "commands.h"
 #include "filter_commands.h"
 #include "frame.h"
+#include "shp_support.h"
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/export.cxxqt.h"
@@ -279,6 +280,11 @@ QJsonObject ControlServer::methodRunCommand(const QJsonObject& params)
     PictureView* view = frame_->activeView();
     if (!view || !view->has_document()) {
         return error(QStringLiteral("no_document"), QStringLiteral("no active document"));
+    }
+    // KookaPictura-SHP fork: the registry's blocked state is not checked by
+    // executeRecorded, so reshaping an SHP sheet is refused here.
+    if (ShpSupport::blocks(frame_, id)) {
+        return error(QStringLiteral("refused"), ShpSupport::blockedReason());
     }
     const QJsonObject values = params.value(QStringLiteral("params")).toObject();
     for (auto it = values.begin(); it != values.end(); ++it) {

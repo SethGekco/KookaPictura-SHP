@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // KookaPictura-SHP fork: the dialogs that make new SHP documents -- File >
 // New SHP, and the options Save As SHP asks for when the image is not an
-// SHP sheet.
+// SHP sheet -- and Image > Frame Size.
 #pragma once
 
 #include <QtWidgets/QDialog>
@@ -95,6 +95,28 @@ private:
     QComboBox* colours_ = nullptr;
     ShpPaletteField* palette_ = nullptr;
     QLabel* summary_ = nullptr;
+};
+
+// Image > Frame Size: every frame's canvas size and where the old frame
+// sits in it (a 3 x 3 anchor; centred by default).
+class ShpFrameSizeDialog : public QDialog {
+    Q_OBJECT
+
+public:
+    ShpFrameSizeDialog(int width, int height, QWidget* parent);
+    int frameWidth() const;
+    int frameHeight() const;
+    // row * 3 + column (4: centre), as shp_frame_size takes it.
+    int anchor() const;
+
+    QSpinBox* widthBox() const { return width_; }
+    QSpinBox* heightBox() const { return height_; }
+    QComboBox* anchorBox() const { return anchor_; }
+
+private:
+    QSpinBox* width_ = nullptr;
+    QSpinBox* height_ = nullptr;
+    QComboBox* anchor_ = nullptr;
 };
 
 } // namespace pictura

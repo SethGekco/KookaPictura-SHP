@@ -690,23 +690,15 @@ void ShpTest::aWholeSheetOverTheLimitOffersTheWindow()
 
 void ShpTest::growingPastTheLimitAsksAgainPerStage()
 {
-    // The whole 1836-byte sheet fits 2000. 27 x 19 x 4 = 2052 is 3% over it,
-    // 27 x 21 x 4 = 2268 is 14% over.
+    // The whole 1836-byte sheet fits 2000. Frame Size to 6 x 6 makes it
+    // 27 x 20 x 4 = 2160, 8% over; 6 x 7 makes 27 x 23 x 4 = 2484, 24% over.
+    // (Canvas Size, which this once went through, is disabled for SHPs.)
     pictura::shp_set_test_limits(2000, 0);
     pictura::PictureView* view = open();
     QVERIFY(view);
-    const QString canvasSize =
-        pictura::commandIdForPath({QStringLiteral("Image"), QStringLiteral("Canvas Size…")});
-    const auto grow = [&](int height) {
-        pictura::CommandParams params;
-        params.values.insert(QStringLiteral("width"), 4 * kW + 3);
-        params.values.insert(QStringLiteral("height"), height);
-        params.values.insert(QStringLiteral("anchor"), QStringLiteral("top-left"));
-        params.values.insert(QStringLiteral("color"), 0.0);
-        return window_->registry()->executeRecorded(canvasSize, params);
-    };
+    const auto grow = [&](int height) { return support_->frameSize(kW, height, 0); };
     pictura::ShpSupport::setGateInteractive(0);
-    QVERIFY(!grow(19));
+    QVERIFY(!grow(6));
     QCOMPARE(view->document_height(), 3 * kH + 2);
     QVERIFY(support_->lastLimitMessage().contains(QStringLiteral("Preferences > Advanced")));
 
@@ -714,24 +706,24 @@ void ShpTest::growingPastTheLimitAsksAgainPerStage()
     support_->setAllowOverLimit(true);
     {
         LimitClicker first({QStringLiteral("go")});
-        QVERIFY(grow(19));
+        QVERIFY(grow(6));
         QCOMPARE(first.seen(), QStringList{QStringLiteral("shpLimitDialog")});
-        QCOMPARE(view->document_height(), 19);
+        QCOMPARE(view->document_height(), 20);
     }
     {
         // Past 10%: refused without the ceiling setting...
         LimitClicker refused({QStringLiteral("go")});
-        QVERIFY(!grow(21));
+        QVERIFY(!grow(7));
         QVERIFY(refused.seen().isEmpty());
         QVERIFY(refused.refused());
-        QCOMPARE(view->document_height(), 19);
+        QCOMPARE(view->document_height(), 20);
     }
     support_->setRemoveCeiling(true);
     // ...and with it, only the second prompt comes up again.
     LimitClicker second({QStringLiteral("go")});
-    QVERIFY(grow(21));
+    QVERIFY(grow(7));
     QCOMPARE(second.seen(), QStringList{QStringLiteral("shpLimitCeilingDialog")});
-    QCOMPARE(view->document_height(), 21);
+    QCOMPARE(view->document_height(), 23);
 }
 
 void ShpTest::aBiggerWindowNeedsTheAllowance()

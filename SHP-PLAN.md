@@ -661,3 +661,21 @@ Phase 2, authoring (recorded as each piece landed):
   frame's cell only (`sheet::snap_frame`, same mapping as Snap to
   Palette), recorded as one "Snap Frame to Palette" step; a frame off a
   paged window is refused.
+- **Commands that reshape the sheet are disabled for an SHP document**:
+  Image Size, Canvas Size, Crop, Trim, Reveal All, the rotations, the
+  canvas flips and every Image > Mode entry. The registry's blocked
+  provider asks `ShpSupport::blocks` (menus and shortcuts are disabled,
+  `dispatch` refuses), and the control server's `run_command` refuses them
+  with the reason, because its replay (`executeRecorded`) does not consult
+  the blocked state. Recorded Actions replayed through `executeRecorded`
+  are not gated; the save gate still refuses a sheet whose size no longer
+  matches its frames. The Crop tool is a tool, not a command, and is
+  likewise caught at save. The Image Size / Canvas Size size-limit hooks
+  in `frame_menus_image.cpp` are gone (that file is upstream's again).
+- **Image > Frame Size** replaces Canvas Size for SHPs: one width and
+  height for every frame and a 3 x 3 anchor (centred by default), cropping
+  or padding with transparency, as one recorded "Frame Size" edit through
+  the size check (the staged-growth test now runs through it). Every frame
+  is written fresh on save, its origin dropped, since its canvas no longer
+  matches the file's. Whole sheets only: on a paged sprite it is refused
+  (resizing would have to rewrite every frame off the window too).

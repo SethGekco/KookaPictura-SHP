@@ -412,6 +412,47 @@ pub fn reflow(old: &Layout, rgba: &[u8], new: &Layout, order: &[Option<usize>]) 
     out
 }
 
+/// Where the old frame sits in a resized cell, per axis: 0 at the start
+/// (left or top), 1 centred (rounded toward the start), 2 at the end.
+pub type Anchor = (u8, u8);
+
+/// The sheet of `old`'s frames on cells of `new`'s size (same frame count):
+/// each frame is placed by `anchor`, cropped where the cell shrinks and
+/// padded with transparency where it grows. Gutters come out transparent.
+pub fn reframe(old: &Layout, rgba: &[u8], new: &Layout, anchor: Anchor) -> Vec<u8> {
+    let (ow, nw) = (old.sheet_width(), new.sheet_width());
+    let mut out = vec![0u8; nw * new.sheet_height() * 4];
+    // The new cell's offset from the old frame's corner, per axis.
+    let shift = |from: usize, to: usize, a: u8| -> isize {
+        (to as isize - from as isize) * isize::from(a.min(2)) / 2
+    };
+    let (sx, sy) = (
+        shift(old.width, new.width, anchor.0),
+        shift(old.height, new.height, anchor.1),
+    );
+    // The columns that land inside the new cell: old x where 0 <= x + sx < new.width.
+    let x0 = (-sx).max(0) as usize;
+    let x1 = (new.width as isize - sx).min(old.width as isize).max(0) as usize;
+    if x1 <= x0 {
+        return out;
+    }
+    for i in 0..old.frames.min(new.frames) {
+        let (ox, oy) = old.cell_origin(i);
+        let (nx, ny) = new.cell_origin(i);
+        for y in 0..old.height {
+            let ty = y as isize + sy;
+            if ty < 0 || ty >= new.height as isize {
+                continue;
+            }
+            let src = ((oy + y) * ow + ox + x0) * 4;
+            let dst = ((ny + ty as usize) * nw + (nx as isize + x0 as isize + sx) as usize) * 4;
+            let len = (x1 - x0) * 4;
+            out[dst..dst + len].copy_from_slice(&rgba[src..src + len]);
+        }
+    }
+    out
+}
+
 /// One cell of a sheet as RGBA rows (`layout.width x layout.height`).
 pub fn cell_rgba(layout: &Layout, rgba: &[u8], frame: usize) -> Vec<u8> {
     let sw = layout.sheet_width();

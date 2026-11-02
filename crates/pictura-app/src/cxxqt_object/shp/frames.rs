@@ -19,7 +19,7 @@ use super::*;
 use pictura_shp::encode_rle;
 use pictura_shp::frames::FrameOp;
 use pictura_shp::resource::{encode_parts, origins, stored, stored_canvas, Origins};
-use pictura_shp::sheet::{gutter_pixels, reflow, window_start};
+use pictura_shp::sheet::{gutter_pixels, reflow, reframe, window_start, Anchor};
 use std::collections::BTreeMap;
 
 /// The operation `name` (`insert`, `duplicate`, `delete`, `move`, `reverse`)
@@ -131,27 +131,41 @@ pub(in crate::cxxqt_object) fn whole_op_rust(
     drop(rgba);
     let next_origins: Origins = order.iter().map(|o| o.and_then(|k| origins[k])).collect();
     let total = order.len();
+    let palette = header.palette.clone();
+    install_whole(rust, layout, palette, &next_rgba, &path, &original, &next_origins)?;
+    Ok(op.focus(total))
+}
+
+/// Replace a whole sheet in the edit being recorded: the layer becomes
+/// `rgba` laid out as `layout` (the canvas resized top-left when its size
+/// changes, which drops the selection) and the resource is rewritten with
+/// `origins`.
+fn install_whole(
+    rust: &mut PictureViewRust,
+    layout: Layout,
+    palette: Palette,
+    rgba: &[u8],
+    path: &str,
+    original: &[u8],
+    origins: &[Option<usize>],
+) -> Result<(), String> {
+    let doc = rust.session.doc.as_mut().ok_or("no document")?;
+    let total = layout.frames;
     let next = Header {
         layout,
-        palette: header.palette,
+        palette,
         first: 0,
         total,
         span: total,
     };
-    let data = encode_parts(
-        &next,
-        &path,
-        &original,
-        std::iter::empty(),
-        Some(&next_origins),
-    );
+    let data = encode_parts(&next, path, original, std::iter::empty(), Some(origins));
     let (sw, sh) = (layout.sheet_width() as u32, layout.sheet_height() as u32);
     let resized = (sw, sh) != (doc.width, doc.height);
     if resized {
         pictura_render::resize_canvas_document(doc, sw, sh, pictura_render::Anchor::TopLeft)
             .map_err(|e| format!("cannot resize the sheet: {e:?}"))?;
     }
-    set_layer_rgba(&mut doc.layers[0], &next_rgba, sw, sh);
+    set_layer_rgba(&mut doc.layers[0], rgba, sw, sh);
     doc.image_resources = set_block(
         &doc.image_resources,
         resource::RESOURCE_ID,
@@ -162,7 +176,116 @@ pub(in crate::cxxqt_object) fn whole_op_rust(
     if resized {
         rust.session.set_selection(None);
     }
-    Ok(op.focus(total))
+    Ok(())
+}
+
+/// The sheet "Frame Size" would make: every frame on a `width` x `height`
+/// canvas.
+fn frame_size_layout(header: &Header, width: i32, height: i32) -> Result<Layout, String> {
+    let side = |v: i32| usize::try_from(v).ok().filter(|v| (1..=4096).contains(v));
+    let (Some(w), Some(h)) = (side(width), side(height)) else {
+        return fail("A frame side must be 1 to 4096 pixels.");
+    };
+    let l = &header.layout;
+    Layout::new(w, h, l.frames, l.gutter).ok_or_else(|| "Those frames do not fit one sheet.".into())
+}
+
+/// What "Frame Size" to `width` x `height` needs, measured against the size
+/// limit; `valid` false for a paged sprite or a size out of range.
+pub(in crate::cxxqt_object) fn shp_plan_frame_size(
+    view: &PictureView,
+    width: i32,
+    height: i32,
+) -> ShpPlan {
+    let Some(header) = view_header(view).filter(|h| !h.paged()) else {
+        return invalid_plan();
+    };
+    let Ok(layout) = frame_size_layout(&header, width, height) else {
+        return invalid_plan();
+    };
+    let limits = Limits::current();
+    let need = limits.assess(layout.sheet_bytes());
+    ShpPlan {
+        valid: true,
+        width: layout.width as i32,
+        height: layout.height as i32,
+        total: header.total as i32,
+        first: 0,
+        count: layout.frames as i32,
+        needed: need.needed,
+        limit: limits.limit,
+        available: limits.available.unwrap_or(0),
+        estimate: need.estimate,
+        stage: i32::from(need.stage),
+        floor_ok: need.floor_ok,
+    }
+}
+
+/// The mutation half of "Frame Size": every frame onto a `width` x
+/// `height` canvas placed by `anchor`. Every frame is written fresh on save
+/// (its origin is dropped): its canvas no longer matches the file's.
+pub(in crate::cxxqt_object) fn frame_size_rust(
+    rust: &mut PictureViewRust,
+    width: i32,
+    height: i32,
+    anchor: Anchor,
+    limits: &Limits,
+    allowance: u64,
+) -> Result<usize, String> {
+    let doc = rust.session.doc.as_ref().ok_or("no document")?;
+    let header = checked_header(doc)?;
+    if header.paged() {
+        return fail(
+            "Frame Size needs the whole sprite on the sheet; this one is loaded a window at a \
+             time.",
+        );
+    }
+    let layout = frame_size_layout(&header, width, height)?;
+    if (layout.width, layout.height) == (header.layout.width, header.layout.height) {
+        return Ok(0);
+    }
+    if layout.sheet_bytes() > header.layout.sheet_bytes() {
+        limits.admit(layout.sheet_bytes(), allowance)?;
+    }
+    let block = block(doc).ok_or("missing SHP data")?;
+    let (_, path, original) = resource::parts(block).ok_or("missing SHP data")?;
+    let original = original.to_vec();
+    let plane = doc.width as usize * doc.height as usize;
+    plain_sheet_layer(doc)?;
+    let rgba = layer_rgba(&doc.layers[0], plane);
+    let gutter = gutter_pixels(&header.layout, &rgba);
+    if gutter > 0 {
+        return fail(format!(
+            "{gutter} pixels lie in the gaps between frames; clear the gutters first."
+        ));
+    }
+    let next_rgba = reframe(&header.layout, &rgba, &layout, anchor);
+    drop(rgba);
+    let origins: Origins = vec![None; layout.frames];
+    install_whole(rust, layout, header.palette, &next_rgba, &path, &original, &origins)?;
+    Ok(1)
+}
+
+/// "Frame Size" as one recorded edit; 1 when it changed the sheet, 0 when
+/// the size was already that, -1 with the reason in `shp_last_error`.
+/// `anchor` is `row * 3 + column` of a 3 x 3 grid (4: centred).
+pub(in crate::cxxqt_object) fn shp_frame_size(
+    view: Pin<&mut PictureView>,
+    width: i32,
+    height: i32,
+    anchor: i32,
+    allowance: u64,
+) -> i32 {
+    let anchor = anchor.clamp(0, 8) as u8;
+    let anchor = (anchor % 3, anchor / 3);
+    let limits = Limits::current();
+    commit(view, "Frame Size", |rust| {
+        if rust.modal_transform_blocks_edit() {
+            return fail("Finish the transform first.");
+        }
+        plain_sheet_layer(rust.session.doc.as_ref().ok_or("no document")?)?;
+        frame_size_rust(rust, width, height, anchor, &limits, allowance)
+    })
 }
 
 /// Where a frame's pixels are before a paged operation.

@@ -67,6 +67,13 @@ public:
     // The New SHP dialog, then newShp().
     void newShpWithDialog();
     QAction* newShpAction() const { return newShpAction_; }
+    // Image > Frame Size (enabled for a whole SHP sheet).
+    QAction* frameSizeAction() const { return frameSizeAction_; }
+    // Every frame onto a `width` x `height` canvas placed by `anchor`
+    // (row * 3 + column), size-checked, one recorded edit; false when
+    // refused or cancelled (the reason in lastGateMessage()).
+    bool frameSize(int width, int height, int anchor);
+    bool frameSizeWithDialog();
     // Save As SHP of `source`, an image that is not an SHP sheet: ask how
     // to cut it into frames, make the SHP sheet as a new document (the image
     // stays as it was) and save that through the normal gate. Returns false
@@ -124,9 +131,13 @@ public:
     // what is over the limit, and grant `view` the agreed allowance. False
     // when the open must not go ahead; the reason in lastLimitMessage().
     bool confirmOpen(PictureView* view, const QString& path);
-    // Before `view` (an SHP or not) is resized to `width` x `height` (Image
-    // Size, Canvas Size). False when it must not be.
-    bool allowSize(PictureView* view, int width, int height);
+    // Image Size, Canvas Size, Crop, Trim, Reveal All, rotations, flips and
+    // mode changes: commands that would reshape an SHP sheet. blocks() is
+    // true for them while the active document is an SHP sheet (the command
+    // registry disables them; the control server refuses them).
+    static bool isSheetCommand(const QString& id);
+    static bool blocks(const QObject* frame, const QString& id);
+    static QString blockedReason();
     // Hold windows of `count` frames of the active paged SHP.
     bool setWindowFrames(int count);
     QString lastLimitMessage() const { return limitMessage_; }
@@ -159,6 +170,7 @@ private:
     // interactive.
     bool cleanGate(PictureView* view, bool dialogs, bool paging, bool palette = true);
     void refreshFrame();
+    void refreshCommands(bool shp);
     enum class Verdict { Go, Alternative, Refused, Cancelled };
     // Measure `plan` against the limit and the settings; ask (stages the
     // view has not confirmed yet) when dialogs are allowed. `what` names
@@ -179,7 +191,9 @@ private:
     ShpPalettePanel* palette_ = nullptr;
     ShpPlaybackPanel* playback_ = nullptr;
     ShpUndoFocus* undoFocus_ = nullptr;
+    bool commandsForShp_ = false;
     QAction* newShpAction_ = nullptr;
+    QAction* frameSizeAction_ = nullptr;
     bool savedCopy_ = false;
     QShortcut* prevKey_ = nullptr;
     QShortcut* nextKey_ = nullptr;

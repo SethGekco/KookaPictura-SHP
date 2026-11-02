@@ -186,9 +186,6 @@ pub mod ffi {
         /// aligned to multiples of `count`; 0 keeps the document's size).
         fn shp_plan_window(view: &PictureView, frame: i32, count: i32) -> ShpPlan;
 
-        /// The SHP document resized to `width` x `height`.
-        fn shp_plan_size(view: &PictureView, width: i32, height: i32) -> ShpPlan;
-
         /// Bytes of sheet past the size limit the user agreed the next open
         /// on this view may hold (0: none).
         fn shp_set_open_allowance(view: Pin<&mut PictureView>, bytes: u64);
@@ -241,6 +238,24 @@ pub mod ffi {
             first: i32,
             count: i32,
             to: i32,
+            allowance: u64,
+        ) -> i32;
+
+        /// What "Frame Size" to `width` x `height` needs against the size
+        /// limit; `valid` is false for a paged sprite or a side outside
+        /// 1..=4096.
+        fn shp_plan_frame_size(view: &PictureView, width: i32, height: i32) -> ShpPlan;
+
+        /// "Frame Size": every frame onto a `width` x `height` canvas, placed
+        /// by `anchor` (`row * 3 + column` of a 3 x 3 grid; 4 centres it),
+        /// cropped or padded with transparency; one recorded edit. Whole
+        /// sheets only. 1 when it changed the sheet, 0 when nothing changed,
+        /// -1 with the reason in `shp_last_error`.
+        fn shp_frame_size(
+            view: Pin<&mut PictureView>,
+            width: i32,
+            height: i32,
+            anchor: i32,
             allowance: u64,
         ) -> i32;
 

@@ -152,6 +152,81 @@ void ShpSupport::installMenus()
     const QList<QAction*> actions = menu->actions();
     const qsizetype at = actions.indexOf(fileNew);
     menu->insertAction(actions.value(at + 1), newShpAction_);
+
+    // Image > Frame Size, right after Canvas Size (which an SHP sheet
+    // disables).
+    frameSizeAction_ = new QAction(tr("Frame Size…"), this);
+    frameSizeAction_->setObjectName(QStringLiteral("shpFrameSizeAction"));
+    frameSizeAction_->setEnabled(false);
+    connect(frameSizeAction_, &QAction::triggered, this, [this] { frameSizeWithDialog(); });
+    QAction* canvasSize = window->registry()->action(QStringLiteral("image.canvas.size"));
+    if (auto* image = canvasSize ? qobject_cast<QMenu*>(canvasSize->parent()) : nullptr) {
+        const QList<QAction*> items = image->actions();
+        image->insertAction(items.value(items.indexOf(canvasSize) + 1), frameSizeAction_);
+    }
+}
+
+bool ShpSupport::frameSizeWithDialog()
+{
+    PictureView* view = view_;
+    if (!view || !shp_info(*view).valid) {
+        return false;
+    }
+    const ShpInfo info = shp_info(*view);
+    ShpFrameSizeDialog dialog(info.width, info.height, frame_);
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+    return frameSize(dialog.frameWidth(), dialog.frameHeight(), dialog.anchor());
+}
+
+bool ShpSupport::frameSize(int width, int height, int anchor)
+{
+    gateMessage_.clear();
+    PictureView* view = view_;
+    if (!view || !shp_info(*view).valid) {
+        gateMessage_ = tr("no SHP document");
+        return false;
+    }
+    const auto refuse = [this](const QString& text) {
+        gateMessage_ = text;
+        message(text);
+        if (asksNow()) {
+            QMessageBox::warning(frame_, tr("Frame Size"), text);
+        }
+        return false;
+    };
+    const ShpInfo info = shp_info(*view);
+    if (info.frames < info.total) {
+        return refuse(tr("Frame Size needs the whole sprite on the sheet; this one is loaded "
+                         "a window at a time."));
+    }
+    const ShpPlan plan = shp_plan_frame_size(*view, width, height);
+    if (!plan.valid) {
+        return refuse(tr("A frame side must be 1 to 4096 pixels."));
+    }
+    switch (confirmLimit(plan, view->property(kStageProperty).toInt(),
+                         tr("Frames of %1 x %2").arg(width).arg(height), tr("Continue"),
+                         QString())) {
+    case Verdict::Go:
+        grant(view, plan.needed, plan.stage);
+        break;
+    case Verdict::Refused:
+        gateMessage_ = limitMessage_;
+        return refuseLimit();
+    default:
+        gateMessage_ = limitMessage_;
+        return false;
+    }
+    const int done = shp_frame_size(*view, width, height, anchor, allowanceOf(view));
+    if (done < 0) {
+        return refuse(shp_last_error());
+    }
+    refreshFrame();
+    if (frames_->current() >= 0) {
+        frames_->focusFrame(frames_->current());
+    }
+    return true;
 }
 
 ShpSupport* ShpSupport::install(QMainWindow* frame, ColorState* colors)
@@ -177,6 +252,7 @@ void ShpSupport::setView(PictureView* view, ImageView* canvas)
     playback_->setView(view);
     palette_->setView(view);
     undoFocus_->setView(view);
+    refreshCommands(shp);
     prevKey_->setEnabled(shp);
     nextKey_->setEnabled(shp);
     if (shp && !wasShp_) {
@@ -190,6 +266,7 @@ void ShpSupport::refresh()
     // A document can become an SHP in place (Revert) or stop being one.
     const bool shp = view_ && shp_info(*view_).valid;
     undoFocus_->refresh();
+    refreshCommands(shp);
     prevKey_->setEnabled(shp);
     nextKey_->setEnabled(shp);
     if (!dock_->isVisible() && !(shp && !wasShp_)) {
@@ -762,27 +839,50 @@ bool ShpSupport::confirmOpen(PictureView* view, const QString& path)
     }
 }
 
-bool ShpSupport::allowSize(PictureView* view, int width, int height)
+// The registry asks blocks() when it refreshes; refresh it when the active
+// document starts or stops being an SHP sheet.
+void ShpSupport::refreshCommands(bool shp)
 {
-    limitMessage_.clear();
-    if (!view || !shp_info(*view).valid) {
-        return true;
+    if (shp == commandsForShp_) {
+        return;
     }
-    const ShpPlan plan = shp_plan_size(*view, width, height);
-    if (!plan.valid || plan.stage <= 0) {
-        return true;
+    commandsForShp_ = shp;
+    if (frameSizeAction_) {
+        frameSizeAction_->setEnabled(shp);
     }
-    switch (confirmLimit(plan, view->property(kStageProperty).toInt(),
-                         tr("Resizing to %1 x %2").arg(width).arg(height), tr("Resize"),
-                         QString())) {
-    case Verdict::Go:
-        grant(view, plan.needed, plan.stage);
-        return true;
-    case Verdict::Refused:
-        return refuseLimit();
-    default:
-        return false;
+    if (auto* window = qobject_cast<PicturaMainWindow*>(frame_); window && window->registry()) {
+        window->registry()->refresh();
     }
+}
+
+bool ShpSupport::isSheetCommand(const QString& id)
+{
+    static const QStringList ids = {
+        QStringLiteral("image.image.size"),
+        QStringLiteral("image.canvas.size"),
+        QLatin1String(command_ids::ImageRotate90Cw),
+        QLatin1String(command_ids::ImageRotate90Ccw),
+        QLatin1String(command_ids::ImageRotate180),
+        QLatin1String(command_ids::ImageRotateArbitrary),
+        QLatin1String(command_ids::ImageFlipHorizontal),
+        QLatin1String(command_ids::ImageFlipVertical),
+        QLatin1String(command_ids::ImageCrop),
+        QLatin1String(command_ids::ImageTrim),
+        QLatin1String(command_ids::ImageRevealAll),
+    };
+    return ids.contains(id) || id.startsWith(QLatin1String("image.mode."));
+}
+
+bool ShpSupport::blocks(const QObject* frame, const QString& id)
+{
+    const ShpSupport* shp = of(frame);
+    return shp && shp->view_ && shp_info(*shp->view_).valid && isSheetCommand(id);
+}
+
+QString ShpSupport::blockedReason()
+{
+    return tr("An SHP sheet keeps its size, orientation and color mode: every frame is a cell "
+              "of it. Use Frame Size for the frames' canvas.");
 }
 
 bool ShpSupport::setWindowFrames(int count)

@@ -7,7 +7,9 @@ use common::{assemble, header, sprite_plane, table, Rng};
 use pictura_shp::frames::FrameOp;
 use pictura_shp::palette::{fallback_palette, unique_colours};
 use pictura_shp::resource::{identity_origins, origins, Header, ShpResource};
-use pictura_shp::sheet::{cell_rgba, from_sheet, gutter_pixels, inverse, reflow, to_sheet, Layout};
+use pictura_shp::sheet::{
+    cell_rgba, from_sheet, gutter_pixels, inverse, reflow, reframe, to_sheet, Layout,
+};
 use pictura_shp::{
     build_mapped, encode_rle, parse, sniff, FrameHeader, FramePlane, Source, MAX_FRAMES,
 };
@@ -257,4 +259,36 @@ fn a_frame_moved_by_hand_is_found_by_its_content() {
         FrameHeader::read(&out, 1).offset,
         FrameHeader::read(&file, 1).offset
     );
+}
+
+#[test]
+fn reframe_places_each_frame_by_the_anchor() {
+    let unique = unique_colours(&fallback_palette());
+    // Frame k: a 4x3 frame whose pixel (x, y) is index 1 + 12k + 4y + x.
+    let old = Layout::new(4, 3, 3, 1).unwrap();
+    let planes: Vec<Vec<u8>> = (0..3)
+        .map(|k| (0..12).map(|i| (1 + 12 * k + i) as u8).collect())
+        .collect();
+    let rgba = to_sheet(&old, &planes, &unique);
+    let inv = inverse(&unique);
+
+    // Grow to 6x5, centred: one column and row of padding before.
+    let grown = Layout::new(6, 5, 3, 1).unwrap();
+    let scan = from_sheet(&grown, &reframe(&old, &rgba, &grown, (1, 1)), &inv);
+    assert_eq!(scan.off_palette_total(), 0);
+    for (k, plane) in scan.planes.iter().enumerate() {
+        assert_eq!(plane[6 + 1], (1 + 12 * k) as u8, "old (0,0) lands at (1,1)");
+        assert_eq!(plane[0], 0);
+        assert_eq!(plane[3 * 6 + 4], (1 + 12 * k + 8 + 3) as u8, "old (3,2) at (4,3)");
+    }
+
+    // Shrink to 2x2 at the bottom right: the frame's last two columns and rows.
+    let small = Layout::new(2, 2, 3, 1).unwrap();
+    let scan = from_sheet(&small, &reframe(&old, &rgba, &small, (2, 2)), &inv);
+    assert_eq!(scan.planes[2], vec![1 + 24 + 6, 1 + 24 + 7, 1 + 24 + 10, 1 + 24 + 11]);
+    assert_eq!(gutter_pixels(&small, &reframe(&old, &rgba, &small, (2, 2))), 0);
+
+    // Top-left keeps the corner.
+    let scan = from_sheet(&small, &reframe(&old, &rgba, &small, (0, 0)), &inv);
+    assert_eq!(scan.planes[0], vec![1, 2, 5, 6]);
 }

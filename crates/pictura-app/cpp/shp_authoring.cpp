@@ -225,6 +225,51 @@ bool ShpConvertDialog::nearest() const
     return colours_->currentIndex() == 0;
 }
 
+ShpFrameSizeDialog::ShpFrameSizeDialog(int width, int height, QWidget* parent)
+    : QDialog(parent)
+{
+    setObjectName(QStringLiteral("shpFrameSizeDialog"));
+    setWindowTitle(tr("Frame Size"));
+    auto* form = new QFormLayout;
+    width_ = spin(this, "shpFrameSizeWidth", 1, kMaxSide, width);
+    height_ = spin(this, "shpFrameSizeHeight", 1, kMaxSide, height);
+    anchor_ = new QComboBox(this);
+    anchor_->setObjectName(QStringLiteral("shpFrameSizeAnchor"));
+    for (const QString& name : {tr("Top left"), tr("Top"), tr("Top right"), tr("Left"),
+                                tr("Center"), tr("Right"), tr("Bottom left"), tr("Bottom"),
+                                tr("Bottom right")}) {
+        anchor_->addItem(name);
+    }
+    anchor_->setCurrentIndex(4);
+    form->addRow(tr("Frame width:"), width_);
+    form->addRow(tr("Frame height:"), height_);
+    form->addRow(tr("Anchor:"), anchor_);
+    auto* note = new QLabel(tr("Every frame gets the new canvas: cropped where it shrinks, "
+                               "transparent where it grows. Every frame is written anew "
+                               "on save."),
+                            this);
+    note->setWordWrap(true);
+    form->addRow(QString(), note);
+    auto* layout = new QVBoxLayout(this);
+    layout->addLayout(form);
+    layout->addWidget(okCancel(this));
+}
+
+int ShpFrameSizeDialog::frameWidth() const
+{
+    return width_->value();
+}
+
+int ShpFrameSizeDialog::frameHeight() const
+{
+    return height_->value();
+}
+
+int ShpFrameSizeDialog::anchor() const
+{
+    return anchor_->currentIndex();
+}
+
 } // namespace pictura
 
 #include "moc_shp_authoring.cpp"
