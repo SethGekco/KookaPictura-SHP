@@ -12,11 +12,22 @@ effect art directly.
   its scope; this fork exists so both can stay what they are.
 - Everything here stays **GPL-3.0-or-later**, like Kooka Pictura. Its
   maintainers, and anyone else, are welcome to take whatever is useful.
-- **Status: just started.** Native SHP editing (frames, palettes, saving SHP)
-  is in progress and not usable yet. Until it is, the same SHP support works
-  in the unmodified Kooka Pictura through a drop-in Qt plugin:
-  [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp) (open
-  SHPs as sprite sheets; a small converter saves them back).
+- **Status: first usable version** (build from source; no release packages
+  yet). Open a TS / RA2 / YR SHP from File > Open and it appears as a sheet of
+  frames in its game palette. The SHP dock has a Frames panel (thumbnails,
+  `,` / `.` to step) and a Palette panel (click a swatch for the exact palette
+  colour, load or swap palettes, remembered per folder). Ctrl+S saves the SHP
+  in place: frames you did not touch are written back byte for byte, and
+  pixels that are not palette colours are caught before saving instead of
+  being changed silently. Checked against 4,819 real SHPs: every valid one
+  that fits in memory saves back byte-identical. Next: onion skin, frame
+  add/remove/reorder, playback preview, shadow tools, house-colour preview
+  (see [`SHP-PLAN.md`](SHP-PLAN.md)).
+- For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
+  [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
+  opens SHPs as sprite sheets (a small converter saves them back). Do not
+  press Save on an SHP in stock Kooka Pictura 0.3.0: it writes a PSD under
+  the .shp name. This fork fixes that.
 - The SHP code comes from [Ochre](https://github.com/SethGekco/Ochre), a
   separate GPL editor whose C&C addon it was first written for.
 
