@@ -225,3 +225,49 @@ pub fn nearest(palette: &Palette, argb: u32) -> u8 {
     }
     best as u8
 }
+
+/// What the game does with a palette index, from Ochre's C&C palette
+/// conventions (`addons/cnc/data/palettes.ini`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// Index 0: transparency itself; it cannot be stored opaque.
+    Transparent,
+    /// Index 1 in unit palettes: the shadow.
+    Shadow,
+    /// 16-31 in unit palettes: the house-colour remap ramp.
+    Remap,
+    /// 240-254 in unit palettes: drawn unaffected by lighting.
+    Unlit,
+    /// No special meaning.
+    Plain,
+}
+
+impl Role {
+    pub fn label(self) -> &'static str {
+        match self {
+            Role::Transparent => "transparent",
+            Role::Shadow => "shadow",
+            Role::Remap => "house colour remap",
+            Role::Unlit => "unaffected by lighting",
+            Role::Plain => "",
+        }
+    }
+}
+
+/// True for a terrain palette (`iso*.pal`), which reserves only index 0.
+pub fn is_terrain(name: &str) -> bool {
+    name.to_ascii_lowercase().starts_with("iso")
+}
+
+/// The role of `index` in the palette called `name` (a file name such as
+/// `unittem.pal`; any non-terrain palette uses the unit conventions).
+pub fn role(name: &str, index: u8) -> Role {
+    match index {
+        0 => Role::Transparent,
+        _ if is_terrain(name) => Role::Plain,
+        1 => Role::Shadow,
+        16..=31 => Role::Remap,
+        240..=254 => Role::Unlit,
+        _ => Role::Plain,
+    }
+}

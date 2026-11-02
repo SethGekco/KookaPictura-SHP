@@ -14,11 +14,17 @@
 //! - [`Source`] keeps everything a writer is free to choose, frame by frame,
 //!   and [`build_preserving`] gives untouched frames their original bytes.
 //! - [`palette`] reads and writes `.pal` files and maps colours to indices.
+//! - [`sheet`] lays the frames out on one RGBA sheet and maps it back to
+//!   indices exactly, reporting (never guessing) off-palette pixels.
+//! - [`resource`] is the private image resource that keeps an SHP
+//!   document's layout, palette and original bytes inside the document.
 //!
 //! See `README.md` for the format sources.
 
 mod codec;
 pub mod palette;
+pub mod resource;
+pub mod sheet;
 mod source;
 
 pub use codec::{

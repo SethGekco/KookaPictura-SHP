@@ -1,6 +1,6 @@
 //! Document save: native PSD/PSB through the worker job, raster with the
-//! per-document profile choice. Any other suffix is refused, never written
-//! as a PSD under that name.
+//! per-document profile choice, SHP through the fork's sheet writer. Any
+//! other suffix is refused, never written as a PSD under that name.
 
 use super::*;
 
@@ -13,6 +13,9 @@ impl qobject::PictureView {
                 self,
                 &QString::from(path_string.as_str()),
             );
+        }
+        if suffix == "shp" {
+            return super::super::shp::save_shp(self, &path_string);
         }
         if raster_writer_for_suffix(&suffix).is_none() {
             if !super::save_jobs::save_start_rust(&mut self.as_mut().rust_mut(), &path_string) {

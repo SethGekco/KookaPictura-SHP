@@ -16,7 +16,15 @@ other `pictura-*` crate, no third-party dependency.
   their bytes, edited frames keep their compression family, new frames use
   RLE-Zero only when it is smaller.
 - `palette` reads 768-byte 6-bit VGA and JASC-PAL palettes and maps colours
-  to indices.
+  to indices; `role` names what the game does with an index.
+- `sheet` lays the frames out on one RGBA sheet (index `i` drawn as the
+  unique colour `U[i]`, index 0 transparent) and maps a sheet back to
+  indices exactly, reporting off-palette and gutter pixels instead of
+  guessing; `snap`, `clear_gutter` and `rebind` are the explicit fixes.
+- `resource` is the private `KookaSHP` PSD image resource (id 4848, in the
+  plug-in range) holding the layout, the palette as read and the original
+  file bytes, with a small `8BIM` section reader/rewriter that keeps every
+  other block.
 
 ## Provenance
 

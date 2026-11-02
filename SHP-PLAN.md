@@ -369,3 +369,27 @@ Save As SHP for a document without a KookaSHP resource (a PNG sheet) is a later 
 - /home/rex/Claude/KookaPictura-SHP/crates/pictura-app/cpp/dialogs.cpp
 - /home/rex/Claude/KookaPictura-SHP/crates/pictura-app/cpp/frame_open.cpp
 - /home/rex/Claude/Ochre/addons/cnc/cncshp.py (the byte-preserving writer to port, alongside /home/rex/Claude/Ochre/extras/qshp/src/shpcodec.cpp for sniff and decode)
+---
+
+## 7. Implementation notes (deviations found while building)
+
+Phase 1, recorded as each slice landed:
+
+- **The open palette reaches the worker through a scoped thread-local.**
+  `open_image_start` takes `shp_open_palette` (the planned state field) and
+  runs the existing decode inside `shp::with_open_palette`; the SHP hook in
+  `decode_image_with_options` reads it. No upstream signature changed.
+  Revert does the same with the document's current palette
+  (`shp::with_document_palette`, one hook in `impl_core.rs::revert`), so a
+  reverted SHP keeps its palette as §4 intended.
+- **Snap, Clear Frame Gutters and Change Palette work on one plain
+  full-canvas pixel layer** (Normal, 100%, no mask) and otherwise ask the
+  user to flatten first, like the planned frame operations. Save itself reads
+  the CPU composite, so a multi-layer sheet whose result is on-palette saves.
+- **Save does not rewrite the resource's original bytes.** The writer pairs
+  frames with the file the document was opened from; a second save of the
+  same pixels produces the same bytes, and history never sees a metadata
+  change that no edit recorded (finding 4).
+- **Snap matches against the palette as read, then draws `U[i]`.** Matching
+  against the unique colours would break the remap-ramp tie rule, because
+  `unique_colours` nudges duplicates apart.

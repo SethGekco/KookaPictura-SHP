@@ -22,6 +22,8 @@ pictura-script = { path = "../pictura-script" }
 pictura-mcp = { path = "../pictura-mcp" }
 pictura-filters = { path = "../pictura-filters" }
 pictura-paint = { path = "../pictura-paint" }
+# The SHP fork's codec (Westwood SHP sprites, .pal palettes); std only.
+pictura-shp = { path = "../pictura-shp" }
 # cxx is the FFI layer the `#[cxx_qt::bridge]` macro expands to.
 cxx = "1.0"
 cxx-qt = "0.10"

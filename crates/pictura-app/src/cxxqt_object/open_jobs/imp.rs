@@ -273,6 +273,10 @@ pub(in crate::cxxqt_object) fn decode_image_with_options(
         path,
         super::super::helpers::safe_io::import_file_limit(),
     )?;
+    // An SHP opens as a sheet before any Qt image plugin can claim it.
+    if let Some(opened) = super::super::shp::decode_shp(path, &bytes, gpu, progress) {
+        return opened;
+    }
     progress(25, "Decoding");
     let (rgba, width, height) = decode_import(&bytes)?;
     progress(70, "Compositing");
@@ -641,20 +645,24 @@ pub fn open_psd_start(mut view: Pin<&mut PictureView>, path: &QString) {
 
 pub fn open_image_start(mut view: Pin<&mut PictureView>, path: &QString) {
     let path = path.to_string();
-    let (policy, options, gpu) = {
+    let (policy, options, gpu, palette) = {
         let mut rust = view.as_mut().rust_mut();
         let policy = rust
             .open_policy_override
             .take()
             .unwrap_or(rust.color_policy);
-        (policy, rust.conversion_options, rust.gpu_compute)
+        let palette = rust.shp_open_palette.take();
+        (policy, rust.conversion_options, rust.gpu_compute, palette)
     };
-    start(&mut view, move |progress| {
-        match decode_image_with_options(&path, policy, options, gpu, progress) {
+    start(
+        &mut view,
+        move |progress| match super::super::shp::with_open_palette(palette, || {
+            decode_image_with_options(&path, policy, options, gpu, progress)
+        }) {
             Some(opened) => (Some(opened), "ok".to_string(), Vec::new()),
             None => (None, "error".to_string(), Vec::new()),
-        }
-    });
+        },
+    );
 }
 
 pub fn open_smart_object_start(mut view: Pin<&mut PictureView>, path: &QString) {

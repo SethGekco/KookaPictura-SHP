@@ -1115,6 +1115,7 @@ dependencies = [
  "pictura-render",
  "pictura-script",
  "pictura-select",
+ "pictura-shp",
  "pollster",
  "rayon",
  "wgpu",

@@ -58,6 +58,7 @@ mod picture;
 mod save_format;
 mod selection_move;
 mod shapes;
+mod shp;
 mod state;
 mod svg_export;
 mod type_tools;

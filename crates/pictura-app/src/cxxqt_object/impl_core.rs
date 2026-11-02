@@ -98,12 +98,17 @@ impl qobject::PictureView {
         if existing_path.is_none() {
             return false;
         }
-        let Some(opened) = super::open_jobs::decode_for_revert(
-            &path,
-            pdf_password.as_deref(),
-            policy,
-            gpu_compute,
-        ) else {
+        // A reverted SHP keeps the palette the document uses now.
+        let Some(opened) =
+            super::shp::with_document_palette(self.rust().session.doc.as_ref(), || {
+                super::open_jobs::decode_for_revert(
+                    &path,
+                    pdf_password.as_deref(),
+                    policy,
+                    gpu_compute,
+                )
+            })
+        else {
             return false;
         };
         let super::open_jobs::OpenedDocument { doc, target, .. } = opened;
