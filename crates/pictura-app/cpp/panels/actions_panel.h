@@ -43,6 +43,9 @@ public:
     using PathProvider = std::function<QString()>;
     using PathStepExecutor = std::function<bool(const QString&)>;
     using ToolStepExecutor = std::function<bool(const QJsonObject&)>;
+    // KookaPictura-SHP fork: why the active document refuses the command a
+    // step would run, or empty when it may run.
+    using StepGate = std::function<QString(const QString& commandId)>;
     struct DocumentFacts {
         bool present = false;
         bool square = false;
@@ -150,6 +153,9 @@ public:
     {
         toolStepExecutor_ = std::move(executor);
     }
+    // KookaPictura-SHP fork: a step the gate refuses is not run; playback
+    // stops with the reason.
+    void setStepGate(StepGate gate) { stepGate_ = std::move(gate); }
     void setDocumentFactsProvider(DocumentFactsProvider provider)
     {
         documentFactsProvider_ = std::move(provider);
@@ -187,6 +193,9 @@ private:
     void schedulePersist();
     void persistNow();
     void reportError(const QString& message);
+    // KookaPictura-SHP fork: true (and the reason reported) when the step gate
+    // refuses `step`.
+    bool refuseStep(const ActionNodeRow& step);
     void setButtonModeInternal(bool on);
 
     QList<ActionNodeRow> selectedRows() const;
@@ -275,6 +284,7 @@ private:
     PathProvider pathProvider_;
     PathStepExecutor pathStepExecutor_;
     ToolStepExecutor toolStepExecutor_;
+    StepGate stepGate_;
     DocumentFactsProvider documentFactsProvider_;
 
     bool windowsPlatform_ = false;

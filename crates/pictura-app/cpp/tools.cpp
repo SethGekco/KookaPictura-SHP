@@ -337,6 +337,11 @@ void ToolController::setActiveTool(ToolId id)
     if (active_ == id) {
         return;
     }
+    // KookaPictura-SHP fork: a refused tool keeps the current one.
+    if (toolGate_ && !toolGate_(id)) {
+        emit activeToolChanged(active_);
+        return;
+    }
     if (!resolvePendingCrop()) {
         emit activeToolChanged(active_);
         return;

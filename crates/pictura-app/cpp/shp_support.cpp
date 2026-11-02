@@ -13,6 +13,7 @@
 #include "panels/shp_palette_panel.h"
 #include "panels/shp_playback_panel.h"
 #include "shp_undo_focus.h"
+#include "tools.h"
 
 #include <QtCore/QFileInfo>
 #include <QtGui/QGuiApplication>
@@ -860,6 +861,67 @@ void ShpSupport::refreshCommands(bool shp)
     if (auto* window = qobject_cast<PicturaMainWindow*>(frame_); window && window->registry()) {
         window->registry()->refresh();
     }
+    refreshCropTools(shp);
+}
+
+// The toolbox flyout entries of the Crop tools, disabled with the reason
+// while an SHP sheet is active; an active Crop tool is put down (its box
+// dropped first, so the switch does not offer to crop the sheet).
+void ShpSupport::refreshCropTools(bool shp)
+{
+    static const char* kTip = "shpToolTip";
+    for (QMenu* menu : frame_->findChildren<QMenu*>(QStringLiteral("toolFlyoutMenu"))) {
+        for (QAction* action : menu->actions()) {
+            if (!action->data().isValid() || !isSheetTool(ToolId(action->data().toInt()))) {
+                continue;
+            }
+            if (shp) {
+                if (!action->property(kTip).isValid()) {
+                    action->setProperty(kTip, action->toolTip());
+                }
+                action->setEnabled(false);
+                action->setToolTip(cropToolReason());
+                action->setStatusTip(cropToolReason());
+            } else if (action->property(kTip).isValid()) {
+                action->setEnabled(true);
+                action->setToolTip(action->property(kTip).toString());
+                action->setStatusTip(QString());
+                action->setProperty(kTip, QVariant());
+            }
+        }
+    }
+    auto* tools = frame_->findChild<ToolController*>();
+    if (shp && tools && isSheetTool(tools->activeTool())) {
+        tools->handleEscape();
+        tools->setActiveTool(ToolId::Move);
+        message(cropToolReason());
+    }
+}
+
+bool ShpSupport::isSheetTool(ToolId id)
+{
+    return id == ToolId::Crop || id == ToolId::PerspectiveCrop;
+}
+
+bool ShpSupport::allowsTool(const QObject* frame, ToolId id)
+{
+    ShpSupport* shp = of(frame);
+    if (!shp || !shp->view_ || !shp_info(*shp->view_).valid || !isSheetTool(id)) {
+        return true;
+    }
+    shp->message(cropToolReason());
+    return false;
+}
+
+QString ShpSupport::cropToolReason()
+{
+    return tr("The Crop tools are off for an SHP sheet: every frame is a cell of it. Use "
+              "Image > Frame Size for the frames' canvas.");
+}
+
+QString ShpSupport::stepRefusal(const QObject* frame, const QString& commandId)
+{
+    return blocks(frame, commandId) ? blockedReason() : QString();
 }
 
 bool ShpSupport::isSheetCommand(const QString& id)

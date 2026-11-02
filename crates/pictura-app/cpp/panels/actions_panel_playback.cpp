@@ -150,8 +150,23 @@ bool ActionsPanel::effectiveModal(const ActionNodeRow& step)
     return step.modal;
 }
 
+bool ActionsPanel::refuseStep(const ActionNodeRow& step)
+{
+    const QString reason = stepGate_ && !step.commandId.isEmpty() ? stepGate_(step.commandId)
+                                                                   : QString();
+    if (reason.isEmpty()) {
+        return false;
+    }
+    reportError(tr("Step %1 (%2) was not run: %3").arg(step.name, step.commandId, reason));
+    return true;
+}
+
 bool ActionsPanel::executeStep(const ActionNodeRow& step, QJsonObject* params, bool modal)
 {
+    // KookaPictura-SHP fork: Record Again and step edits run through here too.
+    if (refuseStep(step)) {
+        return false;
+    }
     if (!step.commandId.isEmpty()) {
         if (stepExecutor_) {
             return stepExecutor_(step, params, modal);
@@ -192,6 +207,12 @@ void ActionsPanel::advancePlayback()
         if (current.isValid()) {
             tree_->setCurrentIndex(current);
         }
+    }
+    // KookaPictura-SHP fork: a command the active document refuses stops the
+    // playback with the reason instead of running.
+    if (refuseStep(step)) {
+        finishPlayback();
+        return;
     }
     bool ok = true;
     if (step.stepKind == QLatin1String("stop")) {

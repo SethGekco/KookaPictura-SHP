@@ -10,12 +10,15 @@
 #include "control_test_client.h"
 #include "frame.h"
 #include "image_view.h"
+#include "panels/actions_panel.h"
+#include "panels/actions_tree_model.h"
 #include "panels/shp_frames_panel.h"
 #include "panels/shp_palette_panel.h"
 #include "panels/shp_playback_panel.h"
 #include "shp_palettes.h"
 #include "shp_support.h"
 #include "shp_undo_focus.h"
+#include "tools.h"
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/eyedropper_sample.cxxqt.h"
@@ -28,7 +31,9 @@
 #include <QtGui/QAction>
 #include <QtGui/QImage>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QMenu>
 #include <QtWidgets/QSpinBox>
+#include <QtWidgets/QStatusBar>
 
 #include "qt_test_support.h"
 #include "shp_fixtures.h"
@@ -36,6 +41,28 @@
 namespace {
 
 constexpr quint64 kPagedLimit = 600;
+
+// The toolbox flyout entry of tool `id`.
+QAction* flyoutEntry(QWidget* window, pictura::ToolId id)
+{
+    for (QMenu* menu : window->findChildren<QMenu*>(QStringLiteral("toolFlyoutMenu"))) {
+        for (QAction* action : menu->actions()) {
+            if (action->data().isValid() && action->data().toInt() == int(id)) {
+                return action;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// An 8 x 6 image that is not an SHP sheet.
+QString plainImage(const QTemporaryDir& dir)
+{
+    const QString path = dir.filePath(QStringLiteral("plain.png"));
+    QImage plain(8, 6, QImage::Format_ARGB32);
+    plain.fill(Qt::red);
+    return plain.save(path) ? path : QString();
+}
 
 // The colour the canvas widget shows for sheet pixel (x, y).
 QRgb shown(pictura::ImageView* canvas, int x, int y)
@@ -69,6 +96,8 @@ private slots:
     void offPaletteMarksFollowEditsAndSnapFrameFixesOneFrame();
     void sheetCommandsAreDisabledForAnShpOnly();
     void frameSizeResizesEveryFrameAsOneStep();
+    void cropToolsAreRefusedForAnShpOnly();
+    void actionStepsThatReshapeAnShpStopThePlayback();
     void hoverReadsOutTheIndexUnderTheCursor();
     void realSpritesThroughDuplicateMoveDelete();
     void newShpForOtherReaders();
@@ -540,6 +569,113 @@ void ShpViewTest::newShpForOtherReaders()
     }
     QFile::remove(out);
     QVERIFY2(window_->saveActiveAs(out), qPrintable(support_->lastGateMessage()));
+}
+
+void ShpViewTest::cropToolsAreRefusedForAnShpOnly()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QTRY_COMPARE(support_->frames()->frameCount(), kFrames);
+    const pictura::ToolId before = window_->activeTool();
+    QVERIFY(!pictura::ShpSupport::isSheetTool(before));
+    const QString reason = pictura::ShpSupport::cropToolReason();
+
+    // Choosing either Crop tool keeps the current tool and says why.
+    window_->statusBar()->clearMessage();
+    window_->setActiveTool(pictura::ToolId::Crop);
+    QCOMPARE(window_->activeTool(), before);
+    QCOMPARE(window_->statusBar()->currentMessage(), reason);
+    window_->setActiveTool(pictura::ToolId::PerspectiveCrop);
+    QCOMPARE(window_->activeTool(), before);
+    // Their toolbox entries are disabled with the reason; Slice is not.
+    QAction* crop = flyoutEntry(window_.get(), pictura::ToolId::Crop);
+    QAction* perspective = flyoutEntry(window_.get(), pictura::ToolId::PerspectiveCrop);
+    QAction* slice = flyoutEntry(window_.get(), pictura::ToolId::Slice);
+    QVERIFY(crop && perspective && slice);
+    QVERIFY(!crop->isEnabled());
+    QVERIFY(!perspective->isEnabled());
+    QCOMPARE(crop->toolTip(), reason);
+    QVERIFY(slice->isEnabled());
+    // The control server's set_tool goes through the same gate.
+    pictura::ControlServer server(window_.get(), dir_.filePath(QStringLiteral("t.sock")));
+    server.dispatch(QStringLiteral("set_tool"),
+                    QJsonObject{{QStringLiteral("tool"),
+                                 pictura::toolIdName(pictura::ToolId::Crop)}});
+    QCOMPARE(window_->activeTool(), before);
+
+    // A plain image gets them back ...
+    const QString png = plainImage(dir_);
+    QVERIFY(!png.isEmpty());
+    QVERIFY(window_->openDocumentAtPath(png));
+    window_->refresh();
+    QTRY_VERIFY(crop->isEnabled());
+    QVERIFY(perspective->isEnabled());
+    QVERIFY(crop->toolTip() != reason);
+    window_->setActiveTool(pictura::ToolId::Crop);
+    QCOMPARE(window_->activeTool(), pictura::ToolId::Crop);
+
+    // ... and going back to the SHP sheet puts the active one down.
+    window_->setActiveDocumentIndex(0);
+    window_->refresh();
+    QTRY_COMPARE(window_->activeView(), view);
+    QTRY_VERIFY(!pictura::ShpSupport::isSheetTool(window_->activeTool()));
+    QVERIFY(!crop->isEnabled());
+    QCOMPARE(view->document_width(), 4 * kW + 3);
+    QVERIFY(window_->saveActiveAs(dir_.filePath(QStringLiteral("kept.shp"))));
+}
+
+void ShpViewTest::actionStepsThatReshapeAnShpStopThePlayback()
+{
+    auto* actions = window_->findChild<pictura::ActionsPanel*>(QStringLiteral("actionsPanel"));
+    QVERIFY(actions);
+    actions->setPersistEnabledForTest(false);
+    pictura::ActionsEngineApi* engine = actions->engineForTest();
+    QVERIFY(engine);
+    const QString set = engine->createSet(QStringLiteral("SHP gate"));
+    QVERIFY(!set.isEmpty());
+    // A recorded command step and an inserted menu-item step.
+    const QString turn = engine->createAction(set, QStringLiteral("Turn"), 0, false, false, 0);
+    QVERIFY(!turn.isEmpty());
+    QVERIFY(engine->startRecording(turn, -1));
+    engine->recordCommand(QStringLiteral("image.rotate90cw"), QJsonObject());
+    engine->stopRecording();
+    const QString trim = engine->createAction(set, QStringLiteral("Trim"), 0, false, false, 0);
+    QVERIFY(!trim.isEmpty());
+    QVERIFY(engine->createMenuItemStep(trim, QStringLiteral("image.trim")));
+    actions->refresh();
+
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QTRY_COMPARE(support_->frames()->frameCount(), kFrames);
+    const int history = view->history_index();
+    const QString reason = pictura::ShpSupport::blockedReason();
+
+    // On an SHP sheet the step is not run: playback stops with the reason.
+    QVERIFY(actions->playActionForTest(turn));
+    QTRY_VERIFY(!actions->isPlaying());
+    QCOMPARE(view->document_width(), 4 * kW + 3);
+    QCOMPARE(view->history_index(), history);
+    QVERIFY2(actions->lastErrorForTest().contains(reason), qPrintable(actions->lastErrorForTest()));
+    QVERIFY(actions->lastErrorForTest().contains(QStringLiteral("image.rotate90cw")));
+    QVERIFY(window_->statusBar()->currentMessage().contains(reason));
+    QVERIFY(actions->playActionForTest(trim));
+    QTRY_VERIFY(!actions->isPlaying());
+    QVERIFY(actions->lastErrorForTest().contains(QStringLiteral("image.trim")));
+    QVERIFY(actions->lastErrorForTest().contains(reason));
+    QCOMPARE(view->history_index(), history);
+
+    // The same recorded step runs on a plain image.
+    const QString png = plainImage(dir_);
+    QVERIFY(!png.isEmpty());
+    QVERIFY(window_->openDocumentAtPath(png));
+    window_->refresh();
+    pictura::PictureView* plain = window_->activeView();
+    QVERIFY(plain && plain != view);
+    QVERIFY(actions->playActionForTest(turn));
+    QTRY_VERIFY(!actions->isPlaying());
+    QVERIFY2(actions->lastErrorForTest().isEmpty(), qPrintable(actions->lastErrorForTest()));
+    QCOMPARE(plain->document_width(), 6);
+    QCOMPARE(plain->document_height(), 8);
 }
 
 QTEST_MAIN(ShpViewTest)

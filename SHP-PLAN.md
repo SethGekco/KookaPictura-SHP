@@ -667,11 +667,22 @@ Phase 2, authoring (recorded as each piece landed):
   provider asks `ShpSupport::blocks` (menus and shortcuts are disabled,
   `dispatch` refuses), and the control server's `run_command` refuses them
   with the reason, because its replay (`executeRecorded`) does not consult
-  the blocked state. Recorded Actions replayed through `executeRecorded`
-  are not gated; the save gate still refuses a sheet whose size no longer
-  matches its frames. The Crop tool is a tool, not a command, and is
-  likewise caught at save. The Image Size / Canvas Size size-limit hooks
+  the blocked state. The Image Size / Canvas Size size-limit hooks
   in `frame_menus_image.cpp` are gone (that file is upstream's again).
+- **The Crop tools and recorded Actions are blocked up front too** (they
+  were first left to the save gate): `ToolController` gained a tool gate
+  that `ShpSupport::allowsTool` answers, so while an SHP sheet is active
+  the Crop and Perspective Crop tools cannot be chosen (toolbox, letter
+  keys, the control server's `set_tool`); the status bar says why and
+  points at Frame Size, their toolbox flyout entries are disabled with the
+  same tooltip, and an already active one is put down (its box dropped, so
+  the switch does not offer to crop) when an SHP sheet becomes active. The
+  Actions panel gained a step gate that `ShpSupport::stepRefusal` answers:
+  a recorded or inserted menu-item step whose command `blocks()` names is
+  not run, and playback stops with "Step … was not run" and the reason
+  (Record Again and step edits refuse it the same way). The save gate
+  still refuses a sheet whose size no longer matches its frames, as a last
+  line behind these.
 - **Image > Frame Size** replaces Canvas Size for SHPs: one width and
   height for every frame and a 3 x 3 anchor (centred by default), cropping
   or padding with transparency, as one recorded "Frame Size" edit through

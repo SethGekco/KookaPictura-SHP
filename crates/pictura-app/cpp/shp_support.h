@@ -23,6 +23,7 @@ class ShpFramesPanel;
 class ShpPalettePanel;
 class ShpPlaybackPanel;
 class ShpUndoFocus;
+enum class ToolId;
 struct ShpPlan;
 
 // True for a path with the .shp suffix (any case).
@@ -138,6 +139,15 @@ public:
     static bool isSheetCommand(const QString& id);
     static bool blocks(const QObject* frame, const QString& id);
     static QString blockedReason();
+    // The Crop and Perspective Crop tools reshape the sheet too: while an
+    // SHP sheet is active allowsTool() refuses them (with a status message)
+    // and their toolbox entries are disabled; an active one is put down.
+    static bool isSheetTool(ToolId id);
+    static bool allowsTool(const QObject* frame, ToolId id);
+    static QString cropToolReason();
+    // Why a recorded Actions step running `commandId` must not run on the
+    // active document, or empty (the Actions panel's step gate).
+    static QString stepRefusal(const QObject* frame, const QString& commandId);
     // Hold windows of `count` frames of the active paged SHP.
     bool setWindowFrames(int count);
     QString lastLimitMessage() const { return limitMessage_; }
@@ -171,6 +181,7 @@ private:
     bool cleanGate(PictureView* view, bool dialogs, bool paging, bool palette = true);
     void refreshFrame();
     void refreshCommands(bool shp);
+    void refreshCropTools(bool shp);
     enum class Verdict { Go, Alternative, Refused, Cancelled };
     // Measure `plan` against the limit and the settings; ask (stages the
     // view has not confirmed yet) when dialogs are allowed. `what` names

@@ -8,6 +8,7 @@
 // never locks.
 
 #include "frame_includes.h"
+#include "panels/actions_panel.h"
 #include "shp_support.h"
 
 namespace pictura {
@@ -48,6 +49,13 @@ void PicturaMainWindow::installTransformLock()
                // KookaPictura-SHP fork: commands that would reshape an SHP sheet.
                || ShpSupport::blocks(this, spec.id);
     });
+    // KookaPictura-SHP fork: the Crop tools and recorded steps that would
+    // reshape an SHP sheet are refused up front.
+    tools_->setToolGate([this](ToolId id) { return ShpSupport::allowsTool(this, id); });
+    if (actionsPanel_) {
+        actionsPanel_->setStepGate(
+            [this](const QString& id) { return ShpSupport::stepRefusal(this, id); });
+    }
     tools_->setTransformDecisionPrompt([this]() { return askApplyTransform(this); });
     tools_->setCropDecisionPrompt([this]() { return askCropImage(this); });
     if (layersPanel_) {

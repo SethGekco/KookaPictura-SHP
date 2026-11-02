@@ -36,8 +36,9 @@ effect art directly.
   the frame they changed into view. An Off-palette toggle marks pixels that
   are not palette colours as you paint, and Snap Frame fixes one frame.
   Image > Frame Size changes every frame's canvas (Image Size, Canvas Size,
-  Crop, Rotate and Mode are disabled for SHPs, since they would break the
-  frame grid). Hovering the canvas reads out the palette index under the
+  Crop, Rotate, Mode and the Crop tools are disabled for SHPs, and an Action
+  step that would run one of them stops the playback, since they would break
+  the frame grid). Hovering the canvas reads out the palette index under the
   cursor in the Palette panel.
   Checked against 4,819 real SHPs: every valid one saves back
   byte-identical. Next: shadow tools,

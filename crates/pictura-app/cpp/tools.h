@@ -196,6 +196,9 @@ public:
 
     ToolId activeTool() const { return active_; }
     void setActiveTool(ToolId id);
+    // KookaPictura-SHP fork: asked before `setActiveTool` switches; false keeps
+    // the current tool (the gate tells the person why).
+    void setToolGate(std::function<bool(ToolId)> gate) { toolGate_ = std::move(gate); }
 
     // A modal tool session's history changed; the frame re-evaluates the
     // Undo/Redo command enabled state.
@@ -607,6 +610,7 @@ private:
     std::function<PictureView*()> viewProvider_;
     std::function<void(ImageView*)> canvasActivationHandler_;
     ToolId active_ = ToolId::Move;
+    std::function<bool(ToolId)> toolGate_;
     SelectionMode dragMode_ = SelectionMode::New;
 
     // The family option groups. The handlers own them (they hold the
