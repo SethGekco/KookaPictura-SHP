@@ -1,3 +1,29 @@
+# Kooka Pictura -- SHP edition
+
+**This is a fork of [Kooka Pictura](https://github.com/KookaStudio/KookaPictura)
+for Command & Conquer sprite work.** Its goal is to make Kooka Pictura a good
+editor for Westwood **SHP** sprites -- Tiberian Sun, Red Alert 2 and Yuri's
+Revenge first, the rest of C&C after -- with multiple frames, game palettes and
+exact palette indices, so modders can open, edit and save unit, building and
+effect art directly.
+
+- It is **not** part of the Kooka Pictura project, and nothing here is
+  submitted to it. Kooka Pictura is a photo editor and game formats are outside
+  its scope; this fork exists so both can stay what they are.
+- Everything here stays **GPL-3.0-or-later**, like Kooka Pictura. Its
+  maintainers, and anyone else, are welcome to take whatever is useful.
+- **Status: just started.** Native SHP editing (frames, palettes, saving SHP)
+  is in progress and not usable yet. Until it is, the same SHP support works
+  in the unmodified Kooka Pictura through a drop-in Qt plugin:
+  [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp) (open
+  SHPs as sprite sheets; a small converter saves them back).
+- The SHP code comes from [Ochre](https://github.com/SethGekco/Ochre), a
+  separate GPL editor whose C&C addon it was first written for.
+
+The rest of this page is Kooka Pictura's own README, unchanged.
+
+---
+
 # Kooka Pictura
 
 A layered photo editor for Linux, built to edit photos well and to read and
