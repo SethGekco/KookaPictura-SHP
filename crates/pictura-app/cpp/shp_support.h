@@ -47,9 +47,12 @@ public:
     // fixes are recorded edits, so what is saved is what is on screen.
     // False when the save must not go ahead. Without an interactive
     // platform (offscreen, control server) nothing is fixed silently: the
-    // save is refused and the reason is in `lastGateMessage()`.
-    bool saveGate(PictureView* view);
+    // save is refused and the reason is in `lastGateMessage()`; so it is with
+    // `dialogs` false (the control server).
+    bool saveGate(PictureView* view, bool dialogs = true);
     QString lastGateMessage() const { return gateMessage_; }
+    // Why the last SHP write failed after the gate let it through.
+    QString lastSaveError() const;
 
     // Test seam: force the gate's dialogs on (or off) whatever the platform.
     static void setGateInteractive(int interactive);

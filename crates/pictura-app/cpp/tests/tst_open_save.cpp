@@ -148,11 +148,12 @@ void OpenSaveTest::unknownSuffixNeverGetsPsdBytes()
     QVERIFY(pictura::isWritableSavePath(QStringLiteral("/tmp/a.PSD")));
     QVERIFY(pictura::isWritableSavePath(QStringLiteral("/tmp/a.png")));
     QVERIFY(pictura::isWritableSavePath(QStringLiteral("/tmp/no-suffix")));
-    QVERIFY(!pictura::isWritableSavePath(QStringLiteral("/tmp/a.shp")));
+    // KookaPictura-SHP fork: .shp has a writer now, but only for an SHP sheet.
+    QVERIFY(pictura::isWritableSavePath(QStringLiteral("/tmp/a.shp")));
     QVERIFY(!pictura::isWritableSavePath(QStringLiteral("/tmp/a.foo")));
 
-    // A flat document opened from a suffix nothing writes (the reader takes
-    // the PNG bytes by content), as a sprite opened through an image plugin.
+    // A flat document opened from a suffix whose writer refuses it (the reader
+    // takes the PNG bytes by content), as a sprite opened through an image plugin.
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString sprite = dir.filePath(QStringLiteral("sprite.shp"));

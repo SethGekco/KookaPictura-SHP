@@ -126,6 +126,12 @@ void ShpSupport::message(const QString& text)
     }
 }
 
+QString ShpSupport::lastSaveError() const
+{
+    const QString error = shp_last_error();
+    return error.isEmpty() ? tr("save failed") : error;
+}
+
 void ShpSupport::setGateInteractive(int interactive)
 {
     g_gateInteractive = interactive;
@@ -155,17 +161,19 @@ void ShpSupport::showOffPalette(PictureView* view)
     }
 }
 
-bool ShpSupport::saveGate(PictureView* view)
+bool ShpSupport::saveGate(PictureView* view, bool dialogs)
 {
     gateMessage_.clear();
+    const bool asks = dialogs && interactive();
     if (!view) {
+        gateMessage_ = tr("no active document");
         return false;
     }
     ShpCheck check = shp_check(*view);
-    const auto refuse = [this](const QString& text) {
+    const auto refuse = [this, asks](const QString& text) {
         gateMessage_ = text;
         message(text);
-        if (interactive()) {
+        if (asks) {
             QMessageBox::warning(frame_, tr("Save as SHP"), text);
         }
         return false;
@@ -177,7 +185,7 @@ bool ShpSupport::saveGate(PictureView* view)
         const QString text = tr("%n pixel(s) are not palette colours (frames %1).", nullptr,
                                 check.off_palette)
                                  .arg(frameList(check.off_frames));
-        if (!interactive()) {
+        if (!asks) {
             return refuse(text + tr(" Snap them to the palette before saving."));
         }
         QMessageBox box(QMessageBox::Warning, tr("Save as SHP"), text, QMessageBox::NoButton,
@@ -214,7 +222,7 @@ bool ShpSupport::saveGate(PictureView* view)
         const QString text =
             tr("%n pixel(s) lie in the gaps between frames and would be lost.", nullptr,
                check.gutter);
-        if (!interactive()) {
+        if (!asks) {
             return refuse(text + tr(" Clear the frame gutters before saving."));
         }
         QMessageBox box(QMessageBox::Warning, tr("Save as SHP"), text, QMessageBox::NoButton,

@@ -9,6 +9,7 @@
 
 #include "dialogs.h"
 #include "frame.h"
+#include "shp_support.h"
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/image_adjust/new_document.cxxqt.h"
@@ -132,6 +133,13 @@ QJsonObject ControlServer::methodDocument(const QJsonObject& params)
                          QStringLiteral("cannot save .%1 files; use a suffix from the Save As "
                                         "formats").arg(QFileInfo(path).suffix()));
         }
+        // KookaPictura-SHP fork: the SHP gate answers here, never with a dialog.
+        ShpSupport* shp = isShpPath(path.isEmpty() ? frame_->activeFilePath() : path)
+                              ? ShpSupport::of(frame_)
+                              : nullptr;
+        if (shp && !shp->saveGate(frame_->activeView(), false)) {
+            return error(QStringLiteral("refused"), shp->lastGateMessage());
+        }
         if (op == QStringLiteral("save_as")) {
             if (path.isEmpty()) {
                 return error(QStringLiteral("invalid_param"), QStringLiteral("path is required"));
@@ -158,6 +166,9 @@ QJsonObject ControlServer::methodDocument(const QJsonObject& params)
             applied = frame_->saveActiveAs(path);
         }
         if (!applied) {
+            if (shp) { // KookaPictura-SHP fork
+                return error(QStringLiteral("io_error"), shp->lastSaveError());
+            }
             return error(QStringLiteral("io_error"), QStringLiteral("save failed"));
         }
     } else if (op == QStringLiteral("revert")) {

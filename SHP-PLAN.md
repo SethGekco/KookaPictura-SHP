@@ -408,3 +408,25 @@ Phase 1, recorded as each slice landed:
   than in the session store, so no upstream session code changes.
 - **The frame grid is drawn in the view frame** (one screen pixel at any
   zoom) around each cell, in the gutter, with the focused cell highlighted.
+- **`,` and `.` are workspace keys.** The frame-stepping shortcuts are listed
+  in `workspaceKeys()`, so Edit > Keyboard Shortcuts refuses to give them to
+  a command (`tst_keyboard_shortcuts` holds every window shortcut to that).
+- **The save gate runs inside `saveActiveAs`**, the one place every save of
+  a `.shp` path passes (Ctrl+S, Save As, the control server), as a single
+  hook into `ShpSupport::saveGate`. Without an interactive platform it never
+  fixes anything silently: the save is refused with the reason. The control
+  server always runs it without dialogs and answers `refused` with that
+  reason (`io_error` with the writer's message if the write itself fails).
+- **Saving a non-SHP document as `.shp` is refused, not converted.**
+  `savePathNeedsFormatDialog` sends a plain Save of such a document to Save
+  As, and the gate refuses the `.shp` path with the reason. Importing an
+  arbitrary image as a new SHP stays out of Phase 1.
+- **An SHP whose sheet is over the import budget is refused on open**, from
+  its header, before any frame is decoded. The budget is the one every
+  other format meets (`ImageBudget`: one RGBA allocation of at most 2 GiB
+  and three quarters of available memory, 30 000 px per side). Found by
+  measuring the corpus: a 136-frame 2052x2816 `sppnuke.shp` lays out at
+  28741x28169, 3.2 GB of RGBA before the composite and history copies (7
+  of 4,819 files; the next largest sheet is 360 MB). Opening it would have
+  exhausted the machine's memory. Phase 2's one-frame-at-a-time view is the
+  way to edit such sprites.

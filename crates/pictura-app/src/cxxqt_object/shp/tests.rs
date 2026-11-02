@@ -445,3 +445,80 @@ fn corpus_through_the_sheet() {
     }
     assert!(failures.is_empty());
 }
+
+/// A sprite whose sheet would be over the import budget is refused from its
+/// header, before a frame is decoded (the header alone is enough here).
+#[test]
+fn an_over_budget_sheet_is_refused_from_the_header() {
+    let mut bytes = Vec::new();
+    for v in [0u16, 2052, 2816, 136] {
+        bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    bytes.resize(HEADER + 136 * FRAME_HEADER, 0);
+    let layout = Layout::new(2052, 2816, 136, DEFAULT_GUTTER).expect("layout");
+    assert!(!sheet_fits_budget(&layout), "28741 x 28169 is over budget");
+    assert!(open_sheet("/tmp/big.shp", bytes, choice(), false, &|_, _| {}).is_none());
+    assert!(shp_last_error()
+        .to_string()
+        .contains("over the import budget"));
+    assert!(sheet_fits_budget(
+        &Layout::new(W, H, FRAMES, DEFAULT_GUTTER).expect("layout")
+    ));
+}
+
+/// The corpus gate through the app path: every SHP in `SHP_CORPUS_LIST`
+/// (NUL-separated paths, read-only) opens as a sheet and an unchanged save
+/// gives back the file byte for byte. Byte identity is only reached when every
+/// frame read back from the RGBA sheet equals its decode, so this also proves
+/// the sheet round trip. Run with
+/// `SHP_CORPUS_LIST=... cargo test -p pictura-app shp_corpus -- --ignored --nocapture`.
+#[test]
+#[ignore = "needs a local corpus of game files"]
+fn shp_corpus_round_trips_through_the_app() {
+    let Ok(list) = std::env::var("SHP_CORPUS_LIST") else {
+        eprintln!("SHP_CORPUS_LIST is not set");
+        return;
+    };
+    let list = std::fs::read(list).expect("corpus list");
+    let (mut checked, mut skipped, mut over, mut failed) = (0usize, 0usize, 0usize, Vec::new());
+    for path in list.split(|b| *b == 0).filter(|p| !p.is_empty()) {
+        let path = String::from_utf8_lossy(path).into_owned();
+        let Ok(bytes) = std::fs::read(&path) else {
+            failed.push(format!("unreadable\t{path}"));
+            continue;
+        };
+        if !pictura_shp::sniff(&bytes, Some(bytes.len())) {
+            skipped += 1;
+            continue;
+        }
+        let field = |at: usize| usize::from(u16::from_le_bytes([bytes[at], bytes[at + 1]]));
+        let layout = Layout::new(
+            field(2),
+            field(4),
+            field(6),
+            pictura_shp::sheet::DEFAULT_GUTTER,
+        );
+        if layout.is_some_and(|layout| !sheet_fits_budget(&layout)) {
+            over += 1;
+            continue;
+        }
+        let Some(opened) = open_sheet(&path, bytes.clone(), choice(), false, &|_, _| {}) else {
+            failed.push(format!("no sheet\t{path}"));
+            continue;
+        };
+        match encode(&opened.doc) {
+            Ok(saved) if saved == bytes => checked += 1,
+            Ok(_) => failed.push(format!("bytes differ\t{path}")),
+            Err(e) => failed.push(format!("refused: {e}\t{path}")),
+        }
+    }
+    eprintln!(
+        "shp corpus (app path): {checked} byte-identical, {skipped} not SHP, \
+         {over} over the import budget, {} failed",
+        failed.len()
+    );
+    for line in &failed {
+        eprintln!("{line}");
+    }
+    assert!(failed.is_empty());
+}

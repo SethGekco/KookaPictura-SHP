@@ -106,13 +106,13 @@ int defaultSaveFilterIndex(PictureView* view);
 // (more than one layer, a group, an adjustment, or a type layer).
 bool documentRequiresLayers(PictureView* view);
 // True when Save can write `path` at all: a suffix in saveFileFilters(), or no
-// suffix (a PSD). Any other suffix (for example `.shp`) is refused, never
+// suffix (a PSD). Any other suffix (for example `.foo`) is refused, never
 // written as a PSD under that name.
 bool isWritableSavePath(const QString& path);
 // True when a plain Save to `path` cannot represent the document and must fall
 // back to the format-aware Save As dialog: a path Save cannot write, or a
-// raster path on a document that needs layers. `pathIsNative` is true for a
-// PSD/PSB path.
+// raster path on a document that needs layers, or an `.shp` path on anything
+// but an SHP sheet. `pathIsNative` is true for a PSD/PSB path.
 bool savePathNeedsFormatDialog(const QString& path, PictureView* view, bool pathIsNative);
 // True when saving to `path` flattens features a flat raster format cannot
 // hold -- a raster extension on a document that needs layers.

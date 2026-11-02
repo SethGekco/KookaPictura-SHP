@@ -12,6 +12,7 @@
 #include "panels/numeric_field.h"
 #include "pictura_debug_timing.h"
 #include "screen_mode_message.h"
+#include "shp_support.h"
 #include "text_input.h"
 #include "pictura_app/src/cxxqt_object/color_management.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/image_adjust/image_mode.cxxqt.h"
@@ -574,6 +575,10 @@ bool PicturaMainWindow::saveActiveAs(const QString& path)
     PictureView* view = viewAt(index);
     // A suffix no writer handles is refused here, before any worker starts.
     if (!view || path.isEmpty() || !isWritableSavePath(path)) {
+        return false;
+    }
+    // KookaPictura-SHP fork: off-palette and gutter pixels are fixed or refused first.
+    if (isShpPath(path) && !(ShpSupport::of(this) && ShpSupport::of(this)->saveGate(view))) {
         return false;
     }
     const QString name = QFileInfo(path).fileName();

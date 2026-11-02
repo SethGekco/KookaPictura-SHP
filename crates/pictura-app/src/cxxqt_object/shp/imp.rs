@@ -133,6 +133,18 @@ pub(in crate::cxxqt_object) fn decode_shp(
     Some(open_sheet(path, bytes.to_vec(), choice, gpu, progress))
 }
 
+/// The import budget every other format meets ([`ImageBudget`]): one RGBA
+/// sheet must fit a single decoded allocation and the document share of
+/// memory. A 136-frame 2052x2816 sprite lays out at 28741x28169 (3.2 GB).
+///
+/// [`ImageBudget`]: pictura_codec::ImageBudget
+pub(in crate::cxxqt_object) fn sheet_fits_budget(layout: &Layout) -> bool {
+    let budget = pictura_codec::ImageBudget::default();
+    let (w, h) = (layout.sheet_width() as u64, layout.sheet_height() as u64);
+    w.max(h) <= u64::from(budget.max_dimension)
+        && w * h * 4 <= budget.max_alloc_bytes.min(budget.max_document_bytes)
+}
+
 /// The sheet document for an SHP's bytes.
 pub(in crate::cxxqt_object) fn open_sheet(
     path: &str,
@@ -142,13 +154,35 @@ pub(in crate::cxxqt_object) fn open_sheet(
     progress: &dyn Fn(u8, &str),
 ) -> Option<OpenedDocument> {
     progress(30, "Decoding frames");
+    // The sheet is laid out from the file header before any frame is decoded,
+    // so an over-budget sheet costs nothing.
+    let field = |at: usize| {
+        Some(usize::from(u16::from_le_bytes([
+            *bytes.get(at)?,
+            *bytes.get(at + 1)?,
+        ])))
+    };
+    let layout = Layout::new(field(2)?, field(4)?, field(6)?, DEFAULT_GUTTER)?;
+    if !sheet_fits_budget(&layout) {
+        set_error(&format!(
+            "{} frames of {}x{} make a {}x{} sheet, over the import budget.",
+            layout.frames,
+            layout.width,
+            layout.height,
+            layout.sheet_width(),
+            layout.sheet_height()
+        ));
+        return None;
+    }
     let source = Source::read(bytes).ok()?;
-    let layout = Layout::new(
+    if (
         usize::from(source.width()),
         usize::from(source.height()),
         source.frames().len(),
-        DEFAULT_GUTTER,
-    )?;
+    ) != (layout.width, layout.height, layout.frames)
+    {
+        return None;
+    }
     let planes = source.canvases();
     let unique = unique_colours(&choice.palette);
     let rgba = sheet::to_sheet(&layout, &planes, &unique);

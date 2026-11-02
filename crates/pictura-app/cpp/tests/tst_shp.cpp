@@ -4,6 +4,8 @@
 
 #include <QtTest/QtTest>
 
+#include "api/document_api.h"
+#include "dialogs.h"
 #include "frame.h"
 #include "image_view.h"
 #include "panels/shp_frames_panel.h"
@@ -16,7 +18,11 @@
 
 #include <QtCore/QFile>
 #include <QtCore/QTemporaryDir>
+#include <QtCore/QTimer>
+#include <QtWidgets/QApplication>
 #include <QtWidgets/QListWidget>
+#include <QtWidgets/QMessageBox>
+#include <QtWidgets/QPushButton>
 
 #include "qt_test_support.h"
 
@@ -86,6 +92,49 @@ bool writeFile(const QString& path, const QByteArray& bytes)
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
 }
 
+QByteArray readFile(const QString& path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+// One hard Pencil dab of `argb` on the pixel (x, y) of the sheet.
+bool dab(pictura::PictureView* view, quint32 argb, int x, int y)
+{
+    view->set_active_layer(QStringLiteral("0"));
+    return view->begin_paint(argb, 0xFFFFFFFFu, 1, 100, 100, 0, 100, 100, 25,
+                             QStringLiteral("normal"), true, false)
+        && view->paint_dab(x + 0.5, y + 0.5, 1.0) && view->end_paint();
+}
+
+// Click the button named `button` in the gate when it appears; true once
+// the gate was seen.
+class GateClicker {
+public:
+    explicit GateClicker(const QString& button)
+    {
+        QObject::connect(&poll_, &QTimer::timeout, [this, button] {
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                auto* box = qobject_cast<QMessageBox*>(widget);
+                if (!box || !box->isVisible()
+                    || box->objectName() != QLatin1String("shpGate")) {
+                    continue;
+                }
+                seen_ = true;
+                if (auto* target = box->findChild<QPushButton*>(button)) {
+                    target->click();
+                }
+            }
+        });
+        poll_.start(20);
+    }
+    bool seen() const { return seen_; }
+
+private:
+    QTimer poll_;
+    bool seen_ = false;
+};
+
 } // namespace
 
 class ShpTest : public QObject {
@@ -99,6 +148,11 @@ private slots:
     void frameClickFocusesAndSelectsTheCell();
     void swatchClickSetsTheExactForeground();
     void rebindIsOneUndoableStep();
+    void saveFormatsListShp();
+    void unchangedSaveIsByteIdentical();
+    void ctrlSWritesTheEditedFrame();
+    void offPaletteSaveAsksFirst();
+    void offPaletteSaveIsRefusedWithoutDialogs();
 
 private:
     pictura::PictureView* open();
@@ -125,6 +179,7 @@ void ShpTest::init()
 
 void ShpTest::cleanup()
 {
+    pictura::ShpSupport::setGateInteractive(-1);
     window_.reset();
     pictura::forgetFolderPalette(shp_);
 }
@@ -237,6 +292,100 @@ void ShpTest::rebindIsOneUndoableStep()
     QVERIFY(view->undo());
     QCOMPARE(pictura::shp_info(*view).palette_name, QStringLiteral("gtank.pal"));
     QCOMPARE(view->composite_argb(1, 0), before);
+}
+
+void ShpTest::saveFormatsListShp()
+{
+    const QStringList& filters = pictura::saveFileFilters();
+    const int shp = filters.indexOf(QStringLiteral("Westwood SHP (TS/RA2) (*.SHP)"));
+    QCOMPARE(shp, 8);
+    QCOMPARE(pictura::defaultSuffixForFilter(shp), QStringLiteral(".shp"));
+    QVERIFY(filters.last().contains(QStringLiteral("*.SHP")));
+    QVERIFY(pictura::openFileFilters().first().contains(QStringLiteral("*.SHP")));
+    QVERIFY(pictura::openFileFilters().contains(filters.at(shp)));
+    QCOMPARE(pictura::pathForSaveFilter(QStringLiteral("/tmp/unit.png"), shp, 0),
+             QStringLiteral("/tmp/unit.shp"));
+
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QCOMPARE(pictura::defaultSaveFilterIndex(view), shp);
+    QVERIFY(!pictura::savePathNeedsFormatDialog(shp_, view, false));
+    // Anything but an SHP sheet goes to Save As (and its gate) instead.
+    QVERIFY(window_->newDocument(QStringLiteral("Plain"), 8, 8, QStringLiteral("rgb"), 8,
+                                 QStringLiteral("white")));
+    pictura::PictureView* plain = window_->activeView();
+    QVERIFY(pictura::savePathNeedsFormatDialog(shp_, plain, false));
+    const QString out = dir_.filePath(QStringLiteral("plain.shp"));
+    QVERIFY(!window_->saveActiveAs(out));
+    QVERIFY(!QFileInfo::exists(out));
+    QVERIFY(!support_->lastGateMessage().isEmpty());
+}
+
+void ShpTest::unchangedSaveIsByteIdentical()
+{
+    QVERIFY(open());
+    const QString out = dir_.filePath(QStringLiteral("copy.shp"));
+    QVERIFY(window_->saveActiveAs(out));
+    QCOMPARE(readFile(out), sprite());
+    QCOMPARE(window_->documentPath(0), out);
+}
+
+void ShpTest::ctrlSWritesTheEditedFrame()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    const rust::Vec<uint32_t> unique = pictura::shp_palette_unique(*view);
+    // Frame 5's pixel (2, 3), at sheet (7 + 2, 6 + 3).
+    QVERIFY(dab(view, unique[22] | 0xFF000000u, 9, 9));
+    QVERIFY(pictura::document_api::isDirty(*view));
+    QVERIFY(window_->saveActive());
+    QVERIFY(!pictura::document_api::isDirty(*view));
+    const QByteArray saved = readFile(shp_);
+    QVERIFY(pictura::shp_sniff_file(shp_));
+    // Raw frames keep their offsets: only that one byte changed.
+    QByteArray expected = sprite();
+    const int base = 8 + 24 * kFrames;
+    expected[base + 5 * kW * kH + 3 * kW + 2] = char(22);
+    QCOMPARE(saved, expected);
+}
+
+void ShpTest::offPaletteSaveAsksFirst()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    // An opaque colour no palette index draws.
+    QVERIFY(dab(view, 0xFF010203u, 1, 1));
+    QCOMPARE(pictura::shp_check(*view).off_palette, 1);
+    {
+        GateClicker cancel(QStringLiteral("shpGateCancel"));
+        QVERIFY(!window_->saveActive());
+        QVERIFY(cancel.seen());
+    }
+    QCOMPARE(readFile(shp_), sprite());
+    const int history = view->history_index();
+    {
+        GateClicker snap(QStringLiteral("shpGateSnap"));
+        QVERIFY(window_->saveActive());
+        QVERIFY(snap.seen());
+    }
+    QCOMPARE(pictura::shp_check(*view).off_palette, 0);
+    QCOMPARE(view->history_index(), history + 1);
+    QVERIFY(pictura::shp_sniff_file(shp_));
+    QVERIFY(readFile(shp_) != sprite());
+}
+
+void ShpTest::offPaletteSaveIsRefusedWithoutDialogs()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QVERIFY(dab(view, 0xFF010203u, 1, 1));
+    const QString out = dir_.filePath(QStringLiteral("out.shp"));
+    QVERIFY(!window_->saveActiveAs(out));
+    QVERIFY(!QFileInfo::exists(out));
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("palette")));
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("frames 0")));
 }
 
 QTEST_MAIN(ShpTest)

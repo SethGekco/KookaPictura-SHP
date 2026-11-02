@@ -6,6 +6,8 @@
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/export.cxxqt.h"
+#include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
+#include "shp_support.h"
 
 #include <QtCore/QDir>
 #include <QtCore/QElapsedTimer>
@@ -107,7 +109,9 @@ bool isKnownImageSuffix(const QString& suffix)
                                       QStringLiteral("jpeg"), QStringLiteral("jpe"),
                                       QStringLiteral("tif"), QStringLiteral("tiff"),
                                       QStringLiteral("webp"), QStringLiteral("bmp"),
-                                      QStringLiteral("pdf"), QStringLiteral("pdp")};
+                                      QStringLiteral("pdf"), QStringLiteral("pdp"),
+                                      // KookaPictura-SHP fork: written by shp::save_shp.
+                                      QStringLiteral("shp")};
     return known.contains(suffix);
 }
 
@@ -254,8 +258,9 @@ const QStringList& saveFileFilters()
         QStringLiteral("WebP (*.WEBP)"),
         QStringLiteral("BMP (*.BMP)"),
         QStringLiteral("Photoshop PDF (*.PDF *.PDP)"),
+        QStringLiteral("Westwood SHP (TS/RA2) (*.SHP)"), // KookaPictura-SHP fork
         QStringLiteral("All Formats (*.PSD *.PSB *.PNG *.JPG *.JPEG *.JPE *.TIF *.TIFF "
-                       "*.WEBP *.BMP *.PDF *.PDP)"),
+                       "*.WEBP *.BMP *.PDF *.PDP *.SHP)"),
     };
     return filters;
 }
@@ -264,7 +269,7 @@ const QStringList& openFileFilters()
 {
     static const QStringList filters = {
         QStringLiteral("All Formats (*.PSD *.PSB *.PNG *.JPG *.JPEG *.JPE *.GIF *.BMP "
-                       "*.TIF *.TIFF *.WEBP *.PDF *.PDP *.AI *.EPS *.EPSF *.PS)"),
+                       "*.TIF *.TIFF *.WEBP *.PDF *.PDP *.AI *.EPS *.EPSF *.PS *.SHP)"),
         QStringLiteral("Photoshop (*.PSD)"),
         QStringLiteral("Photoshop Large Format (*.PSB)"),
         QStringLiteral("PNG (*.PNG)"),
@@ -276,6 +281,7 @@ const QStringList& openFileFilters()
         QStringLiteral("Photoshop PDF (*.PDF *.PDP)"),
         QStringLiteral("Generic PDF (*.PDF *.PDP *.AI)"),
         QStringLiteral("Generic EPS (*.EPS *.EPSF *.PS)"),
+        QStringLiteral("Westwood SHP (TS/RA2) (*.SHP)"), // KookaPictura-SHP fork
         QStringLiteral("All files (*)"),
     };
     return filters;
@@ -297,11 +303,17 @@ bool savePathNeedsFormatDialog(const QString& path, PictureView* view, bool path
     if (path.isEmpty() || !isWritableSavePath(path)) {
         return true;
     }
+    if (isShpPath(path)) { // KookaPictura-SHP fork: only an SHP sheet saves as one
+        return !view || !shp_info(*view).valid;
+    }
     return view && !pathIsNative && documentRequiresLayers(view);
 }
 
 int defaultSaveFilterIndex(PictureView* view)
 {
+    if (view && shp_info(*view).valid) { // KookaPictura-SHP fork
+        return 8;
+    }
     if (!view || documentRequiresLayers(view)) {
         return 0; // Photoshop (*.PSD)
     }
@@ -362,6 +374,8 @@ QString defaultSuffixForFilter(int filterIndex)
         return QStringLiteral(".bmp");
     case 7:
         return QStringLiteral(".pdf");
+    case 8:
+        return QStringLiteral(".shp"); // KookaPictura-SHP fork
     default:
         return QStringLiteral(".psd");
     }
