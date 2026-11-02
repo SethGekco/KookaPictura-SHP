@@ -684,3 +684,13 @@ Phase 2, authoring (recorded as each piece landed):
   composite pixel, so it is what the eyedropper samples and Save writes:
   transparent is index 0, an opaque unique colour its index, anything else
   "off-palette" with its colour and alpha; gutters say so.
+- **Phase 2 verification** (logs in `~/Claude/shp-corpus/phase2b/`, outside
+  the repository): the 321-file corpus sample (300 plus the 21 paged
+  sprites) opened and saved unchanged through the app's control server,
+  321 of 321 byte-identical (app peak VmHWM 4.2 GB). Two real unit sprites
+  (RA2 `gi.shp`, `ggi.shp`, 744 frames each, scratch copies): duplicate
+  frame 2, move the copy to the end, delete frame 0, save; an independent
+  decoder finds the frames in exactly the expected order and all 744
+  frames keep their header fields and data bytes. A 3-frame New SHP
+  painted in the app reads identically in pictura-shp and Ochre's
+  `cncshp`. Self-test 471 passed.
