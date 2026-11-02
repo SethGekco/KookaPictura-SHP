@@ -1,0 +1,14 @@
+[package]
+name = "pictura-shp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Westwood SHP (Tiberian Sun / Red Alert 2) sprites and .pal palettes: sniff, decode, byte-preserving encode"
+
+[lib]
+doctest = false
+
+# Standard library only, on purpose: no Qt, no pictura-* crates, no
+# third-party dependencies.
+[dependencies]

@@ -58,3 +58,10 @@ mesh, brush-dab model and resampling in
 `warp_raster.rs`, and the Warp-mode session in
 `crates/pictura-app/src/cxxqt_object/impl_transform/warp.rs`). The
 full license text is in [`LICENSES/photocraft.txt`](LICENSES/photocraft.txt).
+
+The SHP support in `crates/pictura-shp` (a fork addition) is ported from
+**qshp** (`src/shpcodec.{h,cpp}`) and the **Ochre** C&C addon
+(`addons/cnc/cncshp.py`, `cncpal.py`), Copyright (C) 2026 Ochre
+contributors, licensed under the **GNU General Public License v3 or later**,
+the same license as Kooka Pictura. Both are by the owner of this fork. No
+EA/Westwood game assets are included.

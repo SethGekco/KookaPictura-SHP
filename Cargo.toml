@@ -11,6 +11,7 @@ members = [
     "crates/pictura-select",
     "crates/pictura-render",
     "crates/pictura-testkit",
+    "crates/pictura-shp",
     "crates/pictura-script",
     "crates/pictura-mcp",
     "crates/pictura-app",
@@ -64,6 +65,9 @@ opt-level = 2
 opt-level = 2
 
 [profile.test.package.pictura-testkit]
+opt-level = 2
+
+[profile.test.package.pictura-shp]
 opt-level = 2
 
 [profile.test.package.pictura_app]

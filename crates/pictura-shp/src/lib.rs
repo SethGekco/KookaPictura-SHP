@@ -1,0 +1,29 @@
+// Derived from qshp (`src/shpcodec.{h,cpp}`) and Ochre's C&C addon
+// (`addons/cnc/cncshp.py`, `cncpal.py`). Both Copyright (C) 2026 Ochre
+// contributors, GPL-3.0-or-later, by the owner of this fork.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Westwood SHP sprites (Tiberian Sun / Red Alert 2) and `.pal` palettes.
+//!
+//! Standard library only: no Qt, no other Kooka Pictura crate. The pieces:
+//!
+//! - [`sniff`] validates the whole frame table, because the format's only
+//!   magic is a leading zero word.
+//! - [`parse`] decodes leniently (real files carry truncated lines and
+//!   over-long runs); [`Sprite::canvas`] places a frame on the full canvas.
+//! - [`Source`] keeps everything a writer is free to choose, frame by frame,
+//!   and [`build_preserving`] gives untouched frames their original bytes.
+//! - [`palette`] reads and writes `.pal` files and maps colours to indices.
+//!
+//! See `README.md` for the format sources.
+
+mod codec;
+pub mod palette;
+mod source;
+
+pub use codec::{
+    decode_frame, decode_prefixed_line, decode_rle_line, encode_prefixed, encode_rle,
+    encode_rle_line, frame_span, line_span, parse, sniff, table_bytes, Error, Frame, FrameHeader,
+    Sprite, FRAME_HEADER, HEADER, MAX_FRAMES, MAX_SIDE,
+};
+pub use source::{build, build_frames, build_preserving, Source, SourceFrame};

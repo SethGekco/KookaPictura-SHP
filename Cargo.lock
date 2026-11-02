@@ -1089,6 +1089,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pictura-shp"
+version = "0.3.0"
+
+[[package]]
 name = "pictura-testkit"
 version = "0.3.0"
 
