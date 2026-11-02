@@ -281,7 +281,10 @@ fn frame_size_moves_every_frame_by_the_anchor_and_undoes() {
         for y in 0..nh {
             assert_eq!(frame[y * nw], 0, "padding column");
             assert_eq!(frame[y * nw + nw - 1], 0, "padding column");
-            assert_eq!(&frame[y * nw + 1..y * nw + 1 + W], &old[(y + 1) * W..(y + 2) * W]);
+            assert_eq!(
+                &frame[y * nw + 1..y * nw + 1 + W],
+                &old[(y + 1) * W..(y + 2) * W]
+            );
         }
     }
     // The same size again changes nothing; a paged sprite is refused.

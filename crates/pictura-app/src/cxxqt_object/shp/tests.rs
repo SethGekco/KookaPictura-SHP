@@ -286,7 +286,10 @@ fn snap_frame_touches_only_that_frame() {
     let inverse = sheet::inverse(&unique_colours(&header.palette));
     let (total, points) = sheet::off_palette_points(&l, &rgba, &inverse, 10);
     assert_eq!((total, points.len()), (2, 2));
-    let frames: Vec<_> = points.iter().filter_map(|&(x, y)| l.frame_at(x, y)).collect();
+    let frames: Vec<_> = points
+        .iter()
+        .filter_map(|&(x, y)| l.frame_at(x, y))
+        .collect();
     assert_eq!(frames, vec![2, 4]);
 
     assert_eq!(snap_frame_rust(&mut rust, 4).expect("snaps"), 1);

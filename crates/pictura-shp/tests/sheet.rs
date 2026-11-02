@@ -123,7 +123,7 @@ fn off_palette_pixels_are_reported_per_frame_never_guessed() {
     // The overlay's points: the same three, row by row, gutter excluded.
     let (total, points) = off_palette_points(&layout, &rgba, &inverse(&unique), 2);
     assert_eq!(total, 3);
-    let mut all = vec![(x1 + 1, y1 + 2), (x2 + 3, y2), (x2, y2 + 1)];
+    let mut all = [(x1 + 1, y1 + 2), (x2 + 3, y2), (x2, y2 + 1)];
     all.sort_by_key(|&(x, y)| (y, x));
     assert_eq!(points, all[..2].to_vec());
 

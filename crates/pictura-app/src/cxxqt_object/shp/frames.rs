@@ -132,7 +132,15 @@ pub(in crate::cxxqt_object) fn whole_op_rust(
     let next_origins: Origins = order.iter().map(|o| o.and_then(|k| origins[k])).collect();
     let total = order.len();
     let palette = header.palette.clone();
-    install_whole(rust, layout, palette, &next_rgba, &path, &original, &next_origins)?;
+    install_whole(
+        rust,
+        layout,
+        palette,
+        &next_rgba,
+        &path,
+        &original,
+        &next_origins,
+    )?;
     Ok(op.focus(total))
 }
 
@@ -262,7 +270,15 @@ pub(in crate::cxxqt_object) fn frame_size_rust(
     let next_rgba = reframe(&header.layout, &rgba, &layout, anchor);
     drop(rgba);
     let origins: Origins = vec![None; layout.frames];
-    install_whole(rust, layout, header.palette, &next_rgba, &path, &original, &origins)?;
+    install_whole(
+        rust,
+        layout,
+        header.palette,
+        &next_rgba,
+        &path,
+        &original,
+        &origins,
+    )?;
     Ok(1)
 }
 

@@ -710,7 +710,9 @@ pub(super) fn shp_snap_frame(view: Pin<&mut PictureView>, frame: i32) -> i32 {
         set_error("no such frame");
         return -1;
     };
-    commit(view, "Snap Frame to Palette", |rust| snap_frame_rust(rust, frame))
+    commit(view, "Snap Frame to Palette", |rust| {
+        snap_frame_rust(rust, frame)
+    })
 }
 
 pub(super) fn shp_off_palette_points(view: &PictureView, limit: i32) -> ShpOffPoints {

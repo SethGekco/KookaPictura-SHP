@@ -279,14 +279,24 @@ fn reframe_places_each_frame_by_the_anchor() {
     for (k, plane) in scan.planes.iter().enumerate() {
         assert_eq!(plane[6 + 1], (1 + 12 * k) as u8, "old (0,0) lands at (1,1)");
         assert_eq!(plane[0], 0);
-        assert_eq!(plane[3 * 6 + 4], (1 + 12 * k + 8 + 3) as u8, "old (3,2) at (4,3)");
+        assert_eq!(
+            plane[3 * 6 + 4],
+            (1 + 12 * k + 8 + 3) as u8,
+            "old (3,2) at (4,3)"
+        );
     }
 
     // Shrink to 2x2 at the bottom right: the frame's last two columns and rows.
     let small = Layout::new(2, 2, 3, 1).unwrap();
     let scan = from_sheet(&small, &reframe(&old, &rgba, &small, (2, 2)), &inv);
-    assert_eq!(scan.planes[2], vec![1 + 24 + 6, 1 + 24 + 7, 1 + 24 + 10, 1 + 24 + 11]);
-    assert_eq!(gutter_pixels(&small, &reframe(&old, &rgba, &small, (2, 2))), 0);
+    assert_eq!(
+        scan.planes[2],
+        vec![1 + 24 + 6, 1 + 24 + 7, 1 + 24 + 10, 1 + 24 + 11]
+    );
+    assert_eq!(
+        gutter_pixels(&small, &reframe(&old, &rgba, &small, (2, 2))),
+        0
+    );
 
     // Top-left keeps the corner.
     let scan = from_sheet(&small, &reframe(&old, &rgba, &small, (0, 0)), &inv);
