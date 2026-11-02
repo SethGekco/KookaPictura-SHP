@@ -6,6 +6,7 @@
 #include "commands.h"
 #include "command_ids.h"
 #include "frame.h"
+#include "image_view.h"
 #include "shp_authoring.h"
 #include "shp_palettes.h"
 #include "panels/shp_frames_panel.h"
@@ -249,6 +250,12 @@ void ShpSupport::setView(PictureView* view, ImageView* canvas)
     view_ = view;
     const bool shp = view && shp_info(*view).valid;
     frames_->setView(view, canvas);
+    // The Palette panel reads out the index under the cursor.
+    disconnect(hoverConnection_);
+    if (canvas) {
+        hoverConnection_ = connect(canvas, &ImageView::mouseMoved, palette_,
+                                   &ShpPalettePanel::showCanvasHover);
+    }
     playback_->setView(view);
     palette_->setView(view);
     undoFocus_->setView(view);

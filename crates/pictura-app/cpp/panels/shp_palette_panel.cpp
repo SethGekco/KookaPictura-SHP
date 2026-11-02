@@ -18,6 +18,8 @@
 #include <QtWidgets/QToolButton>
 #include <QtWidgets/QVBoxLayout>
 
+#include <cmath>
+
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
 
@@ -184,8 +186,12 @@ ShpPalettePanel::ShpPalettePanel(ColorState* colors, QWidget* parent)
     readout_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     foreground_ = new QLabel(this);
     foreground_->setObjectName(QStringLiteral("shpPaletteForeground"));
+    canvasHover_ = new QLabel(this);
+    canvasHover_->setObjectName(QStringLiteral("shpCanvasHover"));
+    canvasHover_->setToolTip(tr("The palette index of the canvas pixel under the cursor"));
     layout->addWidget(readout_);
     layout->addWidget(foreground_);
+    layout->addWidget(canvasHover_);
     layout->addStretch(1);
 
     connect(grid_, &ShpPaletteGrid::picked, this, &ShpPalettePanel::pick);
@@ -263,6 +269,54 @@ void ShpPalettePanel::showHover(int index)
         text += QStringLiteral("  ") + role;
     }
     readout_->setText(text);
+}
+
+// Read from the composite, so it is what the eyedropper would sample and
+// what Save would write for that pixel.
+void ShpPalettePanel::showCanvasHover(const QPointF& imagePos)
+{
+    const ShpInfo info = view_ ? shp_info(*view_) : ShpInfo{};
+    const int x = int(std::floor(imagePos.x()));
+    const int y = int(std::floor(imagePos.y()));
+    if (!info.valid || info.cols <= 0 || x < 0 || y < 0 || x >= view_->document_width()
+        || y >= view_->document_height()) {
+        canvasHover_->clear();
+        return;
+    }
+    const int col = x / (info.width + info.gutter);
+    const int row = y / (info.height + info.gutter);
+    const int cell = row * info.cols + col;
+    const bool inCell = x % (info.width + info.gutter) < info.width
+                        && y % (info.height + info.gutter) < info.height && cell < info.frames;
+    if (!inCell) {
+        canvasHover_->setText(tr("Canvas: gutter (%1, %2)").arg(x).arg(y));
+        return;
+    }
+    const int frame = info.first + cell;
+    const int fx = x - col * (info.width + info.gutter);
+    const int fy = y - row * (info.height + info.gutter);
+    const quint32 argb = view_->composite_argb(x, y);
+    const int alpha = int(argb >> 24);
+    const int index = alpha == 0 ? 0 : alpha == 255 ? shp_index_of(*view_, argb & 0xFFFFFFu) : -1;
+    QString text = tr("Frame %1 (%2, %3): ").arg(frame).arg(fx).arg(fy);
+    if (index < 0) {
+        text += tr("off-palette %1, alpha %2").arg(hex(argb)).arg(alpha);
+    } else {
+        text += tr("index %1").arg(index);
+        if (index > 0 && index < source_.size()) {
+            text += QStringLiteral("  ") + hex(source_.at(index));
+        }
+        const QString role = shp_role(*view_, index);
+        if (!role.isEmpty()) {
+            text += QStringLiteral("  ") + role;
+        }
+    }
+    canvasHover_->setText(text);
+}
+
+QString ShpPalettePanel::canvasHoverForTest() const
+{
+    return canvasHover_->text();
 }
 
 void ShpPalettePanel::showForeground()

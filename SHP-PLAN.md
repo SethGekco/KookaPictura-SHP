@@ -679,3 +679,8 @@ Phase 2, authoring (recorded as each piece landed):
   is written fresh on save, its origin dropped, since its canvas no longer
   matches the file's. Whole sheets only: on a paged sprite it is refused
   (resizing would have to rewrite every frame off the window too).
+- **Hover index readout** is a line in the Palette panel ("Frame 5 (1, 0):
+  index 45 #RRGGBB role"), fed by the canvas's `mouseMoved`. It reads the
+  composite pixel, so it is what the eyedropper samples and Save writes:
+  transparent is index 0, an opaque unique colour its index, anything else
+  "off-palette" with its colour and alpha; gutters say so.

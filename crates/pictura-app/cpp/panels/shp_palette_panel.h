@@ -72,6 +72,10 @@ public:
     ShpPaletteGrid* grid() const { return grid_; }
     QString readoutForTest() const;
     QString foregroundReadoutForTest() const;
+    // The canvas pixel under the cursor (sheet coordinates, from
+    // ImageView::mouseMoved): its frame, palette index, colour and role.
+    void showCanvasHover(const QPointF& imagePos);
+    QString canvasHoverForTest() const;
 
 signals:
     void message(const QString& text);
@@ -92,6 +96,7 @@ private:
     QLabel* name_ = nullptr;
     QLabel* readout_ = nullptr;
     QLabel* foreground_ = nullptr;
+    QLabel* canvasHover_ = nullptr;
     QToolButton* load_ = nullptr;
     QToolButton* more_ = nullptr;
     QCheckBox* forFolder_ = nullptr;

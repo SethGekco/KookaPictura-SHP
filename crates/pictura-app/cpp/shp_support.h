@@ -192,6 +192,7 @@ private:
     ShpPlaybackPanel* playback_ = nullptr;
     ShpUndoFocus* undoFocus_ = nullptr;
     bool commandsForShp_ = false;
+    QMetaObject::Connection hoverConnection_;
     QAction* newShpAction_ = nullptr;
     QAction* frameSizeAction_ = nullptr;
     bool savedCopy_ = false;

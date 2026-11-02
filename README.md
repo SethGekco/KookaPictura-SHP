@@ -37,7 +37,8 @@ effect art directly.
   are not palette colours as you paint, and Snap Frame fixes one frame.
   Image > Frame Size changes every frame's canvas (Image Size, Canvas Size,
   Crop, Rotate and Mode are disabled for SHPs, since they would break the
-  frame grid).
+  frame grid). Hovering the canvas reads out the palette index under the
+  cursor in the Palette panel.
   Checked against 4,819 real SHPs: every valid one saves back
   byte-identical. Next: shadow tools,
   house-colour preview (see [`SHP-PLAN.md`](SHP-PLAN.md)).

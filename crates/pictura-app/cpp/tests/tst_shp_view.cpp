@@ -11,6 +11,7 @@
 #include "frame.h"
 #include "image_view.h"
 #include "panels/shp_frames_panel.h"
+#include "panels/shp_palette_panel.h"
 #include "panels/shp_playback_panel.h"
 #include "shp_palettes.h"
 #include "shp_support.h"
@@ -66,6 +67,7 @@ private slots:
     void offPaletteMarksFollowEditsAndSnapFrameFixesOneFrame();
     void sheetCommandsAreDisabledForAnShpOnly();
     void frameSizeResizesEveryFrameAsOneStep();
+    void hoverReadsOutTheIndexUnderTheCursor();
 };
 
 void ShpViewTest::init()
@@ -437,6 +439,35 @@ void ShpViewTest::frameSizeResizesEveryFrameAsOneStep()
     // Out of range is refused with a reason.
     QVERIFY(!support_->frameSize(0, kH, 4));
     QVERIFY(!support_->lastGateMessage().isEmpty());
+}
+
+void ShpViewTest::hoverReadsOutTheIndexUnderTheCursor()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    pictura::ShpPalettePanel* palette = support_->palette();
+    pictura::ImageView* canvas = window_->canvasAt(0);
+    const QPoint c5 = frames->cellRect(5).topLeft();
+    // Through the canvas's own hover signal.
+    emit canvas->mouseMoved(QPointF(c5.x() + 1.5, c5.y() + 0.5));
+    QVERIFY2(palette->canvasHoverForTest().startsWith(QStringLiteral("Frame 5 (1, 0): index 45")),
+             qPrintable(palette->canvasHoverForTest()));
+    palette->showCanvasHover(QPointF(c5.x() + 0.2, c5.y() + 0.7));
+    QVERIFY(palette->canvasHoverForTest().contains(QStringLiteral("index 0")));
+    QVERIFY(palette->canvasHoverForTest().contains(QStringLiteral("transparent"),
+                                                   Qt::CaseInsensitive)
+            || palette->canvasHoverForTest().endsWith(QStringLiteral("index 0")));
+    palette->showCanvasHover(QPointF(kW + 0.5, 1.5));
+    QVERIFY(palette->canvasHoverForTest().contains(QStringLiteral("gutter")));
+    palette->showCanvasHover(QPointF(-3, 2));
+    QVERIFY(palette->canvasHoverForTest().isEmpty());
+
+    QVERIFY(dab(view, 0xFF0BADF0u, c5.x() + 2, c5.y() + 2));
+    palette->showCanvasHover(QPointF(c5.x() + 2.5, c5.y() + 2.5));
+    QVERIFY2(palette->canvasHoverForTest().contains(QStringLiteral("off-palette #0BADF0")),
+             qPrintable(palette->canvasHoverForTest()));
 }
 
 QTEST_MAIN(ShpViewTest)
