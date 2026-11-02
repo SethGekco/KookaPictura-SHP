@@ -57,6 +57,7 @@ private slots:
     void playbackStepsThroughTheRange();
     void playbackDecodesFramesOffAPagedSheet();
     void undoAndRedoFocusTheFrameTheyChanged();
+    void offPaletteMarksFollowEditsAndSnapFrameFixesOneFrame();
 };
 
 void ShpViewTest::init()
@@ -299,6 +300,53 @@ void ShpViewTest::undoAndRedoFocusTheFrameTheyChanged()
     QVERIFY(view->undo());
     QVERIFY(support_->undoFocus()->lastChanged().isEmpty());
     QCOMPARE(frames->current(), 4);
+}
+
+void ShpViewTest::offPaletteMarksFollowEditsAndSnapFrameFixesOneFrame()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    frames->setSelectsCell(false);
+    const quint32 off = 0xFF0BADF0u;
+    QCOMPARE(pictura::shp_index_of(*view, off & 0xFFFFFFu), -1);
+    const QPoint p3 = frames->cellRect(3).topLeft() + QPoint(2, 2);
+    const QPoint p5 = frames->cellRect(5).topLeft() + QPoint(1, 1);
+    QVERIFY(dab(view, off, p3.x(), p3.y()));
+    QVERIFY(dab(view, off, p5.x(), p5.y()));
+    window_->refresh();
+    frames->focusFrame(3);
+    pictura::ImageView* canvas = window_->canvasAt(0);
+    // Below 4x a mark fills its pixel.
+    canvas->setZoom(2.0, QPointF(canvas->width() / 2.0, canvas->height() / 2.0));
+    canvas->centerOnImageRect(QRectF(frames->cellRect(3)));
+    const QRgb plain = shown(canvas, p3.x(), p3.y());
+    const quint32 sampled = pictura::sample_argb_scoped(*view, p3.x(), p3.y(), 1, 0);
+
+    QCheckBox* marks = frames->offPaletteMarks();
+    QVERIFY(marks && marks->isEnabled());
+    marks->setChecked(true);
+    QCOMPARE(canvas->shpGrid().offPalette, QVector<QPoint>({p3, p5}));
+    QTRY_VERIFY(shown(canvas, p3.x(), p3.y()) != plain);
+    QCOMPARE(pictura::sample_argb_scoped(*view, p3.x(), p3.y(), 1, 0), sampled);
+
+    // Live: a new off-palette pixel is marked after the edit.
+    const QPoint q3 = p3 + QPoint(1, 1);
+    QVERIFY(dab(view, off, q3.x(), q3.y()));
+    QTRY_COMPARE(canvas->shpGrid().offPalette.size(), 3);
+
+    // Snap Frame fixes frame 3 only, as one undoable step.
+    frames->focusFrame(3);
+    frames->snapFrameAction()->trigger();
+    QCOMPARE(view->history_label(view->history_index()), QStringLiteral("Snap Frame to Palette"));
+    QCOMPARE(pictura::shp_check(*view).off_frames.size(), size_t(1));
+    QCOMPARE(pictura::shp_check(*view).off_frames[0], 5);
+    QTRY_COMPARE(canvas->shpGrid().offPalette, QVector<QPoint>({p5}));
+    QVERIFY(view->undo());
+    QCOMPARE(pictura::shp_check(*view).off_frames.size(), size_t(2));
+    marks->setChecked(false);
+    QVERIFY(canvas->shpGrid().offPalette.isEmpty());
 }
 
 QTEST_MAIN(ShpViewTest)

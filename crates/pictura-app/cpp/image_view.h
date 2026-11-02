@@ -467,7 +467,8 @@ public:
     void setGuidesVisible(bool on);
     // SHP fork (image_view_shp.cpp): the frame grid of an SHP sheet. A null
     // cell size hides it; `active` outlines one frame's cell. `onion` ghosts
-    // the cells before and after `active` into it at `onionOpacity` percent.
+    // the cells before and after `active` into it at `onionOpacity` percent;
+    // `offPalette` pixels are marked.
     struct ShpGrid {
         QSize cell;
         int cols = 0;
@@ -477,6 +478,8 @@ public:
         bool visible = true;
         bool onion = false;
         int onionOpacity = 35;
+        // Off-palette pixels to mark, sheet coordinates (empty: none).
+        QVector<QPoint> offPalette;
     };
     void setShpGrid(const ShpGrid& grid);
     const ShpGrid& shpGrid() const { return shpGrid_; }
@@ -689,6 +692,7 @@ private:
     void paintGuides(QPainter& painter);
     void paintShpGrid(QPainter& painter);
     void paintShpOnion(QPainter& painter);
+    void paintShpOffPalette(QPainter& painter);
     void paintSmartGuides(QPainter& painter);
     QString formatGuideDistance(double documentPixels) const;
     QList<SmartGuideLine> smartGuideLines_;

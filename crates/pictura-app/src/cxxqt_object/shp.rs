@@ -97,6 +97,14 @@ pub mod ffi {
         argb: Vec<u32>,
     }
 
+    /// Off-palette pixels for the overlay (see `shp_off_palette_points`).
+    #[namespace = "pictura"]
+    struct ShpOffPoints {
+        total: i32,
+        /// Sheet `x, y` pairs, at most the asked-for limit.
+        xy: Vec<i32>,
+    }
+
     /// What Save would find. `error` is non-empty when the document cannot
     /// be saved as an SHP at all (not an SHP document, wrong size or mode).
     #[namespace = "pictura"]
@@ -150,6 +158,15 @@ pub mod ffi {
         /// Clear every gutter pixel (recorded as "Clear Frame Gutters"); the
         /// number changed, or -1 when it cannot.
         fn shp_clear_gutter(view: Pin<&mut PictureView>) -> i32;
+
+        /// Snap the off-palette pixels of file frame `frame` only (recorded
+        /// as "Snap Frame to Palette"); the number changed, or -1 when it
+        /// cannot (the frame is not on the sheet, say).
+        fn shp_snap_frame(view: Pin<&mut PictureView>, frame: i32) -> i32;
+
+        /// The off-palette pixels inside the cells, for the overlay: how
+        /// many, and the first `limit` as sheet `x, y` pairs, row by row.
+        fn shp_off_palette_points(view: &PictureView, limit: i32) -> ShpOffPoints;
 
         /// Recolour the sheet by index with the palette at `path` and keep
         /// it in the document, as one recorded "Change Palette" edit.

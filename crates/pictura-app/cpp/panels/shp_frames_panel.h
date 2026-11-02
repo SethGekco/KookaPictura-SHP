@@ -3,6 +3,8 @@
 #pragma once
 
 #include <QtCore/QHash>
+#include <QtCore/QList>
+#include <QtCore/QPoint>
 #include <QtCore/QPair>
 #include <QtCore/QPointer>
 #include <QtCore/QRect>
@@ -62,6 +64,12 @@ public:
     // cell (view-only; see ImageView::paintShpOnion).
     QCheckBox* onion() const { return onion_; }
     QSpinBox* onionOpacity() const { return onionOpacity_; }
+    // Mark off-palette pixels on the canvas, updated after every edit (at
+    // most kOffPaletteMarks of them).
+    QCheckBox* offPaletteMarks() const { return offMarks_; }
+    static constexpr int kOffPaletteMarks = 200000;
+    // "Snap Frame to Palette" for the current frame (snapFrameRequested).
+    QAction* snapFrameAction() const { return snapFrame_; }
 
     // "Frames loaded": shown for a paged SHP, holding its window size.
     QSpinBox* windowFrames() const { return windowFrames_; }
@@ -82,6 +90,10 @@ signals:
     // A frame operation (see shp_frame_op): insert, duplicate, delete,
     // move, reverse.
     void frameOpRequested(const QString& op, int first, int count, int to);
+    // Snap the off-palette pixels of file frame `frame`.
+    void snapFrameRequested(int frame);
+    // How many off-palette pixels the overlay found (shown when it is on).
+    void offPaletteCounted(int total);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -93,6 +105,7 @@ private:
     void updateLabel(const ShpInfo& info);
     QPixmap offSheetThumbnail(int index);
     void syncGrid();
+    void updateOffPalette();
 
     QPointer<PictureView> view_;
     QPointer<ImageView> canvas_;
@@ -112,6 +125,13 @@ private:
     QCheckBox* grid_ = nullptr;
     QCheckBox* onion_ = nullptr;
     QSpinBox* onionOpacity_ = nullptr;
+    QCheckBox* offMarks_ = nullptr;
+    QAction* snapFrame_ = nullptr;
+    // The overlay's points and what they were computed from.
+    QVector<QPoint> offPoints_;
+    quint64 offRevision_ = 0;
+    quint64 offGeneration_ = 0;
+    bool offValid_ = false;
     QLabel* windowLabel_ = nullptr;
     QSpinBox* windowFrames_ = nullptr;
     QHash<QString, QAction*> ops_;

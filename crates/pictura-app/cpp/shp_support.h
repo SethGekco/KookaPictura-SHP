@@ -90,6 +90,9 @@ public:
     // operation starts a new undo history, which the status bar says. False,
     // with the reason in lastGateMessage(), when nothing changed.
     bool frameOp(const QString& op, int first, int count, int to = 0);
+    // "Snap Frame to Palette" on file frame `frame` (on the sheet): one
+    // recorded step; the pixels changed, or -1 (the reason is shown).
+    int snapFrame(int frame);
     // The bytes of sheet past the limit the user agreed `view` may hold.
     static quint64 allowanceOf(const PictureView* view);
     QString lastGateMessage() const { return gateMessage_; }

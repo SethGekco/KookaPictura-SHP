@@ -2,7 +2,7 @@
 //! The SHP document glue: open as a sheet, the palette queries, the
 //! recorded snap / clear / rebind edits, and the byte-preserving save.
 
-use super::ffi::{ShpCheck, ShpInfo, ShpPlan, ShpThumb};
+use super::ffi::{ShpCheck, ShpInfo, ShpOffPoints, ShpPlan, ShpThumb};
 use super::*;
 
 use crate::cxxqt_object::edit::Edit;
@@ -442,6 +442,33 @@ pub(in crate::cxxqt_object) fn snap_rust(rust: &mut PictureViewRust) -> Result<u
     })
 }
 
+/// The mutation half of "Snap Frame to Palette": file frame `frame`, which
+/// must be on the sheet.
+pub(in crate::cxxqt_object) fn snap_frame_rust(
+    rust: &mut PictureViewRust,
+    frame: usize,
+) -> Result<usize, String> {
+    let header = rust
+        .session
+        .doc
+        .as_ref()
+        .and_then(header)
+        .ok_or("This document is not an SHP sheet.")?;
+    if !header.window().contains(&frame) {
+        return fail(format!("Frame {frame} is not on the sheet."));
+    }
+    with_sheet(rust, |header, rgba| {
+        let unique = unique_colours(&header.palette);
+        sheet::snap_frame(
+            &header.layout,
+            rgba,
+            &header.palette,
+            &unique,
+            frame - header.first,
+        )
+    })
+}
+
 /// The mutation half of "Clear Frame Gutters".
 pub(in crate::cxxqt_object) fn clear_gutter_rust(
     rust: &mut PictureViewRust,
@@ -676,6 +703,35 @@ pub(super) fn shp_check(view: &PictureView) -> ShpCheck {
 
 pub(super) fn shp_snap(view: Pin<&mut PictureView>) -> i32 {
     commit(view, "Snap to Palette", snap_rust)
+}
+
+pub(super) fn shp_snap_frame(view: Pin<&mut PictureView>, frame: i32) -> i32 {
+    let Ok(frame) = usize::try_from(frame) else {
+        set_error("no such frame");
+        return -1;
+    };
+    commit(view, "Snap Frame to Palette", |rust| snap_frame_rust(rust, frame))
+}
+
+pub(super) fn shp_off_palette_points(view: &PictureView, limit: i32) -> ShpOffPoints {
+    let found = view.rust().session.doc.as_ref().map(sheet_pixels);
+    let Some(Ok((header, rgba))) = found else {
+        return ShpOffPoints {
+            total: 0,
+            xy: Vec::new(),
+        };
+    };
+    let unique = unique_colours(&header.palette);
+    let limit = usize::try_from(limit).unwrap_or(0);
+    let (total, points) =
+        sheet::off_palette_points(&header.layout, &rgba, &sheet::inverse(&unique), limit);
+    ShpOffPoints {
+        total: total.min(i32::MAX as usize) as i32,
+        xy: points
+            .into_iter()
+            .flat_map(|(x, y)| [x as i32, y as i32])
+            .collect(),
+    }
 }
 
 pub(super) fn shp_clear_gutter(view: Pin<&mut PictureView>) -> i32 {

@@ -274,16 +274,33 @@ fn grow(
 /// colour. Pixels already on the palette and the gutters are left alone.
 /// Returns how many pixels changed.
 pub fn snap(layout: &Layout, rgba: &mut [u8], palette: &Palette, unique: &Palette) -> usize {
+    snap_where(layout, rgba, palette, unique, |_| true)
+}
+
+/// [`snap`] for the cell of sheet frame `frame` only.
+pub fn snap_frame(
+    layout: &Layout,
+    rgba: &mut [u8],
+    palette: &Palette,
+    unique: &Palette,
+    frame: usize,
+) -> usize {
+    snap_where(layout, rgba, palette, unique, |f| f == frame)
+}
+
+fn snap_where(
+    layout: &Layout,
+    rgba: &mut [u8],
+    palette: &Palette,
+    unique: &Palette,
+    wanted: impl Fn(usize) -> bool,
+) -> usize {
     let inverse = inverse(unique);
     let sw = layout.sheet_width();
     let mut changed = 0;
     for (y, row) in rgba.chunks_exact_mut(sw * 4).enumerate() {
         for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-            if layout.frame_at(x, y).is_none() || px[3] == 0 {
-                continue;
-            }
-            let rgb = (u32::from(px[0]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[2]);
-            if px[3] == 255 && inverse.contains_key(&rgb) {
+            if !layout.frame_at(x, y).is_some_and(&wanted) || !is_off(px, &inverse) {
                 continue;
             }
             changed += 1;
@@ -291,11 +308,46 @@ pub fn snap(layout: &Layout, rgba: &mut [u8], palette: &Palette, unique: &Palett
                 px.copy_from_slice(&[0, 0, 0, 0]);
                 continue;
             }
+            let rgb = (u32::from(px[0]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[2]);
             let c = unique.argb[usize::from(nearest(palette, 0xFF00_0000 | rgb))];
             px.copy_from_slice(&[(c >> 16) as u8, (c >> 8) as u8, c as u8, 255]);
         }
     }
     changed
+}
+
+/// Is a pixel inside a cell off the palette: neither transparent nor an
+/// opaque unique colour (the rule of [`from_sheet`]).
+fn is_off(px: &[u8; 4], inverse: &HashMap<u32, u8>) -> bool {
+    if px[3] == 0 {
+        return false;
+    }
+    let rgb = (u32::from(px[0]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[2]);
+    px[3] != 255 || !inverse.contains_key(&rgb)
+}
+
+/// The off-palette pixels inside the cells: how many there are, and the
+/// first `limit` of them as sheet `(x, y)`, row by row.
+pub fn off_palette_points(
+    layout: &Layout,
+    rgba: &[u8],
+    inverse: &HashMap<u32, u8>,
+    limit: usize,
+) -> (usize, Vec<(usize, usize)>) {
+    let sw = layout.sheet_width();
+    let mut total = 0;
+    let mut points = Vec::new();
+    for (y, row) in rgba.chunks_exact(sw * 4).enumerate() {
+        for (x, px) in row.as_chunks::<4>().0.iter().enumerate() {
+            if layout.frame_at(x, y).is_some() && is_off(px, inverse) {
+                total += 1;
+                if points.len() < limit {
+                    points.push((x, y));
+                }
+            }
+        }
+    }
+    (total, points)
 }
 
 /// Make every gutter (and unused-cell) pixel transparent, in place. Returns

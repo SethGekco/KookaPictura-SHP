@@ -649,3 +649,15 @@ Phase 2, authoring (recorded as each piece landed):
   over 64 MiB is never rescanned whole, so there a restore with no bounded
   region (a frame operation, Change Palette) focuses nothing. A paged
   window starts its fingerprints afresh on every page change.
+- **Off-palette marks** (Frames panel "Off-palette"): pixels inside the
+  cells that are neither transparent nor an opaque unique colour (the
+  save gate's rule, `sheet::off_palette_points`) are marked in magenta on
+  the canvas, outlined from 4x zoom so their own colour shows, filled
+  below. The list is rescanned after each edit (when the canvas revision
+  moved) while the toggle is on; it scans the sheet once per edit, which
+  is why it is off by default. At most 200,000 pixels are marked (a status
+  message gives the full count past that). View-only, like the onion skin.
+- **Snap Frame to Palette** (Frames panel "Snap Frame") snaps the current
+  frame's cell only (`sheet::snap_frame`, same mapping as Snap to
+  Palette), recorded as one "Snap Frame to Palette" step; a frame off a
+  paged window is refused.

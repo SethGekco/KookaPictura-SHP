@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // KookaPictura-SHP fork: the frame grid of an SHP sheet, drawn over the
-// canvas. View-only: it never touches the document or a sampled colour.
+// canvas, the onion skin and the off-palette marks. View-only: none of it
+// touches the document or a sampled color.
 
 #include "image_view.h"
 
@@ -16,7 +17,8 @@ void ImageView::setShpGrid(const ShpGrid& grid)
     const ShpGrid& g = shpGrid_;
     if (g.cell == grid.cell && g.cols == grid.cols && g.frames == grid.frames
         && g.gutter == grid.gutter && g.active == grid.active && g.visible == grid.visible
-        && g.onion == grid.onion && g.onionOpacity == grid.onionOpacity) {
+        && g.onion == grid.onion && g.onionOpacity == grid.onionOpacity
+        && g.offPalette == grid.offPalette) {
         return;
     }
     shpGrid_ = grid;
@@ -141,6 +143,36 @@ void ImageView::paintShpGrid(QPainter& painter)
     if (g.active >= 0 && g.active < g.frames) {
         painter.setPen(QPen(palette().color(QPalette::Highlight), 0));
         painter.drawRect(cellRect(g.active).adjusted(-1, -1, 1, 1));
+    }
+    painter.restore();
+    paintShpOffPalette(painter);
+}
+
+// Off-palette pixels: outlined in magenta when a pixel is at least four
+// screen pixels wide (its own colour stays visible inside), filled below
+// that. View-only, like the rest of this file.
+void ImageView::paintShpOffPalette(QPainter& painter)
+{
+    const ShpGrid& g = shpGrid_;
+    if (g.offPalette.isEmpty()) {
+        return;
+    }
+    painter.save();
+    painter.setTransform(viewRotation());
+    painter.setClipRect(viewRect());
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    const QRectF visible = viewRect();
+    const QColor mark(255, 0, 255);
+    const bool outline = zoom_ >= 4.0;
+    painter.setPen(outline ? QPen(mark, 0) : Qt::NoPen);
+    painter.setBrush(outline ? QBrush(Qt::NoBrush) : QBrush(mark));
+    for (const QPoint& p : g.offPalette) {
+        const QPointF tl(p.x() * zoom_ + offset_.x(), p.y() * zoom_ + offset_.y());
+        const QRectF r(tl, QSizeF(std::max(zoom_, 1.0), std::max(zoom_, 1.0)));
+        if (!r.intersects(visible)) {
+            continue;
+        }
+        painter.drawRect(outline ? r.adjusted(0.5, 0.5, -0.5, -0.5) : r);
     }
     painter.restore();
 }

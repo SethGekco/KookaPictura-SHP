@@ -10,8 +10,8 @@ use pictura_shp::resource::{
     StoredFrame, RESOURCE_ID,
 };
 use pictura_shp::sheet::{
-    auto_columns, clear_gutter, from_sheet, inverse, rebind, snap, to_sheet, window_frames,
-    window_start, Layout, MAX_SHEET_SIDE,
+    auto_columns, clear_gutter, from_sheet, inverse, off_palette_points, rebind, snap, snap_frame,
+    to_sheet, window_frames, window_start, Layout, MAX_SHEET_SIDE,
 };
 
 /// A palette that repeats colours the way game palettes do, so
@@ -119,6 +119,22 @@ fn off_palette_pixels_are_reported_per_frame_never_guessed() {
     assert_eq!(scan.off_bounds[1], Some((x1 + 1, y1 + 2, 1, 1)));
     assert_eq!(scan.off_bounds[2], Some((x2, y2, 4, 2)));
     assert_eq!(scan.gutter, 1);
+
+    // The overlay's points: the same three, row by row, gutter excluded.
+    let (total, points) = off_palette_points(&layout, &rgba, &inverse(&unique), 2);
+    assert_eq!(total, 3);
+    let mut all = vec![(x1 + 1, y1 + 2), (x2 + 3, y2), (x2, y2 + 1)];
+    all.sort_by_key(|&(x, y)| (y, x));
+    assert_eq!(points, all[..2].to_vec());
+
+    // Snapping one frame leaves the other's off-palette pixel alone.
+    let palette = repetitive_palette();
+    let mut one = rgba.clone();
+    assert_eq!(snap_frame(&layout, &mut one, &palette, &unique, 2), 2);
+    let after = from_sheet(&layout, &one, &inverse(&unique));
+    assert_eq!(after.off_palette, vec![0, 1, 0]);
+    assert_eq!(after.gutter, 1, "the gutter is not a frame's");
+    assert_eq!(one[at(x1 + 1, y1 + 2) + 3], 128);
 
     assert_eq!(clear_gutter(&layout, &mut rgba), 1);
     assert_eq!(from_sheet(&layout, &rgba, &inverse(&unique)).gutter, 0);

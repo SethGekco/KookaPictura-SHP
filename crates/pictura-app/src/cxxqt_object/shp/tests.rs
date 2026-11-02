@@ -272,6 +272,30 @@ fn a_soft_brush_dab_is_reported_and_snap_fixes_it() {
 }
 
 #[test]
+fn snap_frame_touches_only_that_frame() {
+    let mut rust = opened(sprite(), choice());
+    let unique = unique_colours(&palette());
+    let l = layout(&rust);
+    for frame in [2, 4] {
+        let (x0, y0) = l.cell_origin(frame);
+        let off = pencil(unique.argb[21] ^ 0x0000_0300);
+        dab(&mut rust, off, (x0 + 3) as f32 + 0.5, (y0 + 3) as f32 + 0.5);
+    }
+    assert_eq!(check(doc(&rust)).off_frames, vec![2, 4]);
+    let (header, rgba) = sheet_pixels(doc(&rust)).expect("sheet");
+    let inverse = sheet::inverse(&unique_colours(&header.palette));
+    let (total, points) = sheet::off_palette_points(&l, &rgba, &inverse, 10);
+    assert_eq!((total, points.len()), (2, 2));
+    let frames: Vec<_> = points.iter().filter_map(|&(x, y)| l.frame_at(x, y)).collect();
+    assert_eq!(frames, vec![2, 4]);
+
+    assert_eq!(snap_frame_rust(&mut rust, 4).expect("snaps"), 1);
+    rust.apply_edit("Snap Frame to Palette", Edit::Full);
+    assert_eq!(check(doc(&rust)).off_frames, vec![2]);
+    assert!(snap_frame_rust(&mut rust, FRAMES + 3).is_err());
+}
+
+#[test]
 fn a_gutter_pixel_blocks_the_save_until_cleared() {
     let mut rust = opened(sprite(), choice());
     let unique = unique_colours(&palette());

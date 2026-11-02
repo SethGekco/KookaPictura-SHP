@@ -86,8 +86,26 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     onionOpacity_->setValue(35);
     onionOpacity_->setSuffix(QStringLiteral("%"));
     onionOpacity_->setToolTip(tr("Onion skin opacity"));
+    offMarks_ = new QCheckBox(tr("Off-palette"), this);
+    offMarks_->setObjectName(QStringLiteral("shpOffPaletteOverlay"));
+    offMarks_->setToolTip(
+        tr("Mark pixels that are not palette colors (magenta), updated as you paint. "
+           "View only."));
+    snapFrame_ = new QAction(tr("Snap Frame"), this);
+    snapFrame_->setObjectName(QStringLiteral("shpSnapFrame"));
+    snapFrame_->setToolTip(tr("Snap Frame to Palette: map the current frame's off-palette "
+                              "pixels to the nearest palette index (one undoable step)"));
+    connect(snapFrame_, &QAction::triggered, this, [this] {
+        if (current_ >= 0) {
+            emit snapFrameRequested(current_);
+        }
+    });
+    auto* snapButton = new QToolButton(this);
+    snapButton->setDefaultAction(snapFrame_);
     viewRow->addWidget(onion_);
     viewRow->addWidget(onionOpacity_);
+    viewRow->addWidget(offMarks_);
+    viewRow->addWidget(snapButton);
     viewRow->addStretch(1);
     layout->addLayout(viewRow);
 
@@ -121,6 +139,7 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     connect(grid_, &QCheckBox::toggled, this, [this] { syncGrid(); });
     connect(onion_, &QCheckBox::toggled, this, [this] { syncGrid(); });
     connect(onionOpacity_, &QSpinBox::valueChanged, this, [this] { syncGrid(); });
+    connect(offMarks_, &QCheckBox::toggled, this, [this] { syncGrid(); });
     connect(windowFrames_, &QSpinBox::valueChanged, this, [this](int count) {
         if (view_ && count != shp_info(*view_).span) {
             emit windowSizeRequested(count);
@@ -230,6 +249,7 @@ void ShpFramesPanel::setView(PictureView* view, ImageView* canvas)
         builtLayout_.clear();
         offThumbs_.clear();
         offPalette_.clear();
+        offValid_ = false;
     }
     view_ = view;
     canvas_ = canvas;
@@ -321,6 +341,8 @@ void ShpFramesPanel::refresh()
     grid_->setEnabled(shp);
     onion_->setEnabled(shp);
     onionOpacity_->setEnabled(shp);
+    offMarks_->setEnabled(shp);
+    snapFrame_->setEnabled(shp);
     syncGrid();
 }
 
@@ -442,9 +464,33 @@ void ShpFramesPanel::syncGrid()
             grid.visible = grid_->isChecked();
             grid.onion = onion_->isChecked();
             grid.onionOpacity = onionOpacity_->value();
+            if (offMarks_->isChecked()) {
+                updateOffPalette();
+                grid.offPalette = offPoints_;
+            }
         }
     }
     canvas_->setShpGrid(grid);
+}
+
+// Rescanned only when the pixels changed since the last scan.
+void ShpFramesPanel::updateOffPalette()
+{
+    const quint64 revision = view_->canvas_revision();
+    const quint64 generation = view_->document_generation();
+    if (offValid_ && revision == offRevision_ && generation == offGeneration_) {
+        return;
+    }
+    const ShpOffPoints found = shp_off_palette_points(*view_, kOffPaletteMarks);
+    offPoints_.clear();
+    offPoints_.reserve(int(found.xy.size() / 2));
+    for (size_t i = 0; i + 1 < found.xy.size(); i += 2) {
+        offPoints_.append(QPoint(found.xy[i], found.xy[i + 1]));
+    }
+    offRevision_ = revision;
+    offGeneration_ = generation;
+    offValid_ = true;
+    emit offPaletteCounted(found.total);
 }
 
 void ShpFramesPanel::focusFrame(int index)

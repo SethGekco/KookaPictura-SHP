@@ -22,7 +22,7 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/cpp/frame_session.cpp` | `retargetDock` calls `ShpSupport::setView`, `refreshDock` calls `ShpSupport::refresh`; one include |
 | `crates/pictura-app/cpp/frame_open.cpp` | `startOpenImagePath`: when `shp_sniff_file(path)`, `ShpSupport::confirmOpen(view, path)` (the size limit, header only) before `beginOpenCursor`, deleting the view and returning 0 when it refuses, and `shp_set_open_palette(*view, resolveShpPalette(path))` before `open_image_start`; three includes |
 | `crates/pictura-app/cpp/keyboard_shortcuts_dialog.cpp` | `,` and `.` (frame stepping) added to `workspaceKeys()`, so the shortcut editor never hands them to a command |
-| `crates/pictura-app/cpp/image_view.h` | the `ShpGrid` struct (grid, active cell, onion skin), `setShpGrid`/`shpGrid`, `paintShpGrid`, `paintShpOnion` and the `shpGrid_` member |
+| `crates/pictura-app/cpp/image_view.h` | the `ShpGrid` struct (grid, active cell, onion skin, off-palette marks), `setShpGrid`/`shpGrid`, `paintShpGrid`, `paintShpOnion`, `paintShpOffPalette` and the `shpGrid_` member |
 | `crates/pictura-app/cpp/image_view.cpp` | `paintEvent` calls `paintShpGrid(painter)` before the guides |
 | `crates/pictura-app/cpp/dialogs.{h,cpp}` | `shp` in `isKnownImageSuffix`; "Westwood SHP (TS/RA2) (*.SHP)" as save filter 8 (before All Formats) and in the open filters, `*.SHP` in both All Formats; `defaultSuffixForFilter(8)`; `defaultSaveFilterIndex` returns 8 for an SHP sheet; `savePathNeedsFormatDialog` sends an `.shp` path to Save As unless the document is an SHP sheet; two includes; doc comments |
 | `crates/pictura-app/cpp/frame.cpp` | `saveActiveAs`: an `.shp` path runs `ShpSupport::saveGate(view, true, path)` first (the path lets it convert an image that is not an SHP sheet into a new SHP document); one include |
@@ -43,7 +43,7 @@ the File > New SHP menu entry, inserted after File > New at runtime),
 `cpp/shp_authoring.{h,cpp}` (the New SHP and Save As SHP dialogs),
 `cpp/shp_undo_focus.{h,cpp}` (Undo/Redo focus the frame they changed),
 `cpp/panels/shp_{frames,palette,playback}_panel.{h,cpp}`, `cpp/image_view_shp.cpp`
-(the frame grid and onion skin) and `cpp/tests/{tst_shp,tst_shp_view}.cpp` with their
+(the frame grid, onion skin and off-palette marks) and `cpp/tests/{tst_shp,tst_shp_view}.cpp` with their
 shared generated sprites in `cpp/tests/shp_fixtures.h`.
 
 The generic save guard (any suffix without a writer is refused instead of

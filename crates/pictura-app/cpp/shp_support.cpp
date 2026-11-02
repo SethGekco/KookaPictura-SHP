@@ -113,6 +113,15 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     connect(frames_, &ShpFramesPanel::pageRequested, this, [this](int frame) { pageTo(frame); });
     connect(frames_, &ShpFramesPanel::windowSizeRequested, this,
             [this](int count) { setWindowFrames(count); });
+    connect(frames_, &ShpFramesPanel::snapFrameRequested, this,
+            [this](int frame) { snapFrame(frame); });
+    connect(frames_, &ShpFramesPanel::offPaletteCounted, this, [this](int total) {
+        if (total > ShpFramesPanel::kOffPaletteMarks) {
+            message(tr("%1 off-palette pixels; the first %2 are marked.")
+                        .arg(total)
+                        .arg(ShpFramesPanel::kOffPaletteMarks));
+        }
+    });
     connect(frames_, &ShpFramesPanel::frameOpRequested, this,
             [this](const QString& op, int first, int count, int to) {
                 frameOp(op, first, count, to);
@@ -346,6 +355,25 @@ bool ShpSupport::convertForSave(PictureView* source, const QString& path, bool d
         message(gateMessage_);
     }
     return false;
+}
+
+int ShpSupport::snapFrame(int frame)
+{
+    PictureView* view = view_;
+    if (!view || !shp_info(*view).valid) {
+        return -1;
+    }
+    const int changed = shp_snap_frame(*view, frame);
+    if (changed < 0) {
+        message(lastSaveError());
+        return changed;
+    }
+    refreshFrame();
+    message(changed == 0 ? tr("Frame %1 is already on the palette.").arg(frame)
+                         : tr("Snapped %1 pixels of frame %2 to the palette.")
+                               .arg(changed)
+                               .arg(frame));
+    return changed;
 }
 
 void ShpSupport::refreshFrame()
