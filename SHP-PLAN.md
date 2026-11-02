@@ -544,3 +544,48 @@ The size limit and its allowance (Preferences > Advanced):
 - **Tests inject the limit and the memory** (`shp_set_test_limits`): a
   6x5 frame is 120 bytes, so 110 bytes is 9% over and 100 bytes 20% over;
   nothing large is allocated.
+
+Phase 2, authoring (recorded as each piece landed):
+
+- **Frame operations** (insert blank, duplicate, delete, move earlier /
+  later or by dragging a thumbnail, reverse the selected range) live in the
+  Frames panel (buttons and the list's context menu). The plan's rule "they
+  require exactly one pixel layer, otherwise offer to flatten" is kept as a
+  refusal naming Layer > Flatten Image, like Snap and Change Palette.
+- **Frame origins instead of content hashing alone.** The resource gained
+  a version 3: after the frame store, every frame's origin (the original
+  file's frame it shows, or `0xFFFF` for an added one). It is written only
+  once the order differs from the identity, so untouched documents keep
+  their version 1 or 2 block byte for byte. Save pairs each frame with its
+  origin (`build_mapped`): a moved frame keeps its payload, flags, radar and
+  rectangle; an edited moved frame keeps its own compression family. The
+  plan's content hash is there too, as the fallback: a frame whose pixels
+  equal some source frame's decode exactly (moved by copy and paste, say)
+  is written as that frame. Origins are needed anyway for paged sprites,
+  whose untouched off-sheet frames are never decoded.
+- **A frame keeps its original offset only at its own position.** The
+  writer's "place data at the original offset while it is still ahead"
+  rule assumed file order; for a moved frame it would leave holes of zeros,
+  so moved frames are aligned to 8. A duplicate gets its own copy of the
+  bytes; only frames that shared a data block in the source keep sharing.
+- **Whole sheets: one recorded edit.** The sheet is reflowed cell by cell
+  (pixels copied exactly, off-palette work included, so no snap is
+  needed first) and the resource is rewritten in the same edit; a
+  frame-count change that changes the sheet size is a geometry edit
+  (`resize_canvas_document` top-left, then the layer is replaced). Pixels
+  in the gutters would be dropped by the reflow, so they refuse the
+  operation (the shell offers the recorded Clear first).
+- **Paged sprites: an operation is a history edge, like paging.** It is
+  applied to the whole frame list (window frames from the sheet, stored
+  frames from the store, everything else by origin, nothing decoded that
+  is not shown), then the window that holds the focused frame is rebuilt
+  and History starts again, with the status-bar notice. Recording it would
+  keep a copy of the resource, which holds the whole original file
+  (`sppnuke.shp`: 203 MB), in every undo state. The window must pass the
+  paging gate first (on the palette, clean gutters), because its frames may
+  move into the frame store.
+- **Inserts and duplicates go through the size check.** The resulting sheet
+  (or window) is measured like "Frames loaded": over the limit it asks or
+  refuses by the same stages and the same allowance; a whole sheet that
+  would outgrow the limit is not turned into a paged one.
+

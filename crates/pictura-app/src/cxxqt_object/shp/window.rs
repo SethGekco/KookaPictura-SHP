@@ -14,7 +14,7 @@ use super::*;
 use crate::cxxqt_object::helpers_composite::{buffer_to_rgba_bytes, current_buffer};
 use crate::history::History;
 use pictura_shp::frame_canvas;
-use pictura_shp::resource::{encode_parts, stored, stored_canvas};
+use pictura_shp::resource::{encode_parts, origins, stored, stored_canvas};
 use pictura_shp::sheet::{window_frames, window_start, Layout, DEFAULT_GUTTER};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -255,25 +255,42 @@ pub(in crate::cxxqt_object) fn window_label(header: &Header) -> String {
     }
 }
 
+/// The full canvas of the original file's frame `origin`; blank for a frame
+/// added in the editor (`None`).
+pub(in crate::cxxqt_object) fn origin_canvas(
+    original: &[u8],
+    origin: Option<usize>,
+    width: usize,
+    height: usize,
+) -> Vec<u8> {
+    match origin {
+        Some(j) => frame_canvas(original, j),
+        None => vec![0u8; width * height],
+    }
+}
+
 /// Frame `frame`'s full canvas as the document holds it now: the frame
-/// store's copy when it was edited off the sheet, else the original file's.
+/// store's copy when it was edited off the sheet, else its origin's.
 /// Not for frames on the sheet.
 pub(in crate::cxxqt_object) fn stored_or_original(
     original: &[u8],
     stored: &[(usize, &[u8])],
+    origin: Option<usize>,
     frame: usize,
     width: usize,
     height: usize,
 ) -> Vec<u8> {
     match stored.iter().find(|(f, _)| *f == frame) {
         Some((_, data)) => stored_canvas(data, width, height),
-        None => frame_canvas(original, frame),
+        None => origin_canvas(original, origin, width, height),
     }
 }
 
 /// The checks every recorded paging needs: one plain sheet layer whose
 /// pixels all map to palette indices, with clean gutters.
-fn clean_window(doc: &Document) -> Result<(Header, sheet::Scan), String> {
+pub(in crate::cxxqt_object) fn clean_window(
+    doc: &Document,
+) -> Result<(Header, sheet::Scan), String> {
     let header = checked_header(doc)?;
     plain_sheet_layer(doc)?;
     let rgba = buffer_to_rgba_bytes(&current_buffer(doc, false));
@@ -325,6 +342,7 @@ pub(in crate::cxxqt_object) fn page_rust(
     if original.is_empty() {
         return fail("This SHP sheet has no source file to page through.");
     }
+    let origins = origins(block).ok_or("damaged SHP data")?;
     let mut store: BTreeMap<usize, Vec<u8>> = stored(block)
         .ok_or("damaged SHP data")?
         .into_iter()
@@ -332,7 +350,7 @@ pub(in crate::cxxqt_object) fn page_rust(
         .collect();
     for (i, plane) in scan.planes.iter().enumerate() {
         let f = header.first + i;
-        if *plane == frame_canvas(original, f) {
+        if *plane == origin_canvas(original, origins[f], w, h) {
             store.remove(&f);
         } else {
             store.insert(f, pictura_shp::encode_rle(plane, w));
@@ -344,7 +362,7 @@ pub(in crate::cxxqt_object) fn page_rust(
         .clone()
         .map(|f| match store.get(&f) {
             Some(data) => stored_canvas(data, w, h),
-            None => frame_canvas(original, f),
+            None => origin_canvas(original, origins[f], w, h),
         })
         .collect();
     store.retain(|f, _| !window.contains(f));
@@ -360,23 +378,48 @@ pub(in crate::cxxqt_object) fn page_rust(
         &palette_path,
         original,
         store.iter().map(|(f, d)| (*f, &d[..])),
+        Some(&origins),
     );
     drop(store);
     let name = doc.layers[0].name.clone();
+    let dirty = rust.session.dirty;
+    let label = window_label(&next);
+    install_window(
+        rust,
+        &name,
+        &layout,
+        planes,
+        &next.palette,
+        &data,
+        &label,
+        dirty,
+    );
+    Ok(())
+}
 
-    // The outgoing window and its history go before the next one is built,
-    // so the two never sit in memory together.
-    let (path, format, dirty, gpu) = (
+/// Replace the document with a new window (`planes` on `layout`, resource
+/// `data`) and a fresh history whose first state is `label`. The outgoing
+/// window and its history go first, so the two never sit in memory
+/// together. The path and format stay; `dirty` marks it unsaved.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::cxxqt_object) fn install_window(
+    rust: &mut PictureViewRust,
+    name: &str,
+    layout: &Layout,
+    planes: Vec<Vec<u8>>,
+    palette: &Palette,
+    data: &[u8],
+    label: &str,
+    dirty: bool,
+) {
+    let (path, format, gpu) = (
         rust.path.clone(),
         rust.source_format.clone(),
-        rust.session.dirty,
         rust.gpu_compute,
     );
     rust.session.doc = None;
     rust.session.history = History::default();
-    let label = window_label(&next);
-    let (doc, history, target) =
-        window_document(&name, &layout, &planes, &next.palette, &data, gpu, &label);
+    let (doc, history, target) = window_document(name, layout, &planes, palette, data, gpu, label);
     drop(planes);
     rust.replace_document(Some(doc), history, target, None);
     rust.path = path;
@@ -384,7 +427,6 @@ pub(in crate::cxxqt_object) fn page_rust(
     if dirty {
         rust.session.mark_unsaved();
     }
-    Ok(())
 }
 
 /// A small picture of frame `index` for the Frames panel, at most `side`
@@ -408,7 +450,8 @@ pub(in crate::cxxqt_object) fn thumbnail(doc: &Document, index: usize, side: usi
         return empty;
     }
     let stored = stored(block).unwrap_or_default();
-    let plane = stored_or_original(original, &stored, index, l.width, l.height);
+    let origin = origins(block).and_then(|o| o.get(index).copied()).flatten();
+    let plane = stored_or_original(original, &stored, origin, index, l.width, l.height);
     let side = side.max(1);
     let scale = (side as f64 / l.width as f64)
         .min(side as f64 / l.height as f64)
@@ -437,8 +480,9 @@ pub(in crate::cxxqt_object) fn thumbnail(doc: &Document, index: usize, side: usi
 }
 
 /// What frame `index`'s thumbnail depends on besides the palette: `None`
-/// for a frame on the sheet (or none at all), 0 for an original frame, and a
-/// hash of the frame store's copy for an edited one.
+/// for a frame on the sheet (or none at all), the original frame it shows
+/// (65536 for a blank added one), or a hash of the frame store's copy for an
+/// edited one.
 pub(in crate::cxxqt_object) fn frame_stamp(doc: &Document, index: usize) -> Option<u64> {
     let block = block(doc)?;
     let header = Header::read(block)?;
@@ -446,14 +490,17 @@ pub(in crate::cxxqt_object) fn frame_stamp(doc: &Document, index: usize) -> Opti
         return None;
     }
     let stored = stored(block)?;
+    let fnv = |bytes: &[u8]| {
+        bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        })
+    };
     Some(match stored.iter().find(|(f, _)| *f == index) {
-        // FNV-1a, nudged off 0.
-        Some((_, data)) => data
-            .iter()
-            .fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
-                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-            })
-            .max(1),
-        None => 0,
+        // FNV-1a, nudged off 0 and off the original frames' stamps.
+        Some((_, data)) => fnv(data).max(1 << 20),
+        None => match origins(block)?.get(index).copied().flatten() {
+            Some(j) => j as u64,
+            None => u64::from(u16::MAX) + 1,
+        },
     })
 }

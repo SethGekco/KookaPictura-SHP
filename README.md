@@ -26,10 +26,11 @@ effect art directly.
   For a rare sprite that must be held whole anyway, Edit > Preferences >
   Advanced can lift the size limit until Kooka closes, with a confirmation
   each time and a hard stop at the memory actually available.
+  The Frames panel inserts, duplicates, deletes, moves (buttons or drag)
+  and reverses frames; a moved frame keeps its stored bytes on save.
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: onion skin, frame
-  add/remove/reorder, playback preview, shadow tools, house-colour preview
-  (see [`SHP-PLAN.md`](SHP-PLAN.md)).
+  byte-identical. Next: onion skin, playback preview, shadow tools,
+  house-colour preview (see [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
   opens SHPs as sprite sheets (a small converter saves them back). Do not

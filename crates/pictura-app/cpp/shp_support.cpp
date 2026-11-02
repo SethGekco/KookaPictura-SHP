@@ -101,6 +101,10 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     connect(frames_, &ShpFramesPanel::pageRequested, this, [this](int frame) { pageTo(frame); });
     connect(frames_, &ShpFramesPanel::windowSizeRequested, this,
             [this](int count) { setWindowFrames(count); });
+    connect(frames_, &ShpFramesPanel::frameOpRequested, this,
+            [this](const QString& op, int first, int count, int to) {
+                frameOp(op, first, count, to);
+            });
 
     prevKey_ = new QShortcut(QKeySequence(Qt::Key_Comma), frame);
     nextKey_ = new QShortcut(QKeySequence(Qt::Key_Period), frame);
@@ -239,6 +243,62 @@ bool ShpSupport::pageTo(int frame, int span)
                 .arg(info.first)
                 .arg(info.first + info.frames - 1)
                 .arg(info.total));
+    return true;
+}
+
+bool ShpSupport::frameOp(const QString& op, int first, int count, int to)
+{
+    gateMessage_.clear();
+    PictureView* view = view_;
+    if (!view || !shp_info(*view).valid) {
+        gateMessage_ = tr("no SHP document");
+        return false;
+    }
+    const bool paged = [&] {
+        const ShpInfo info = shp_info(*view);
+        return info.frames < info.total;
+    }();
+    const auto refuse = [this](const QString& text) {
+        gateMessage_ = text;
+        message(text);
+        if (asksNow()) {
+            QMessageBox::warning(frame_, tr("Frames"), text);
+        }
+        return false;
+    };
+    const ShpPlan plan = shp_plan_frames(*view, op, first, count, to);
+    if (!plan.valid) {
+        return refuse(tr("That frame operation does not apply here."));
+    }
+    switch (confirmLimit(plan, view->property(kStageProperty).toInt(),
+                         tr("A sheet of %1 frames").arg(plan.count), tr("Continue"), QString())) {
+    case Verdict::Go:
+        grant(view, plan.needed, plan.stage);
+        break;
+    case Verdict::Refused:
+        gateMessage_ = limitMessage_;
+        return refuseLimit();
+    default:
+        gateMessage_ = limitMessage_;
+        return false;
+    }
+    if (!cleanGate(view, g_quiet == 0, true, paged)) {
+        return false;
+    }
+    const int focus = shp_frame_op(*view, op, first, count, to, allowanceOf(view));
+    if (focus < 0) {
+        return refuse(shp_last_error());
+    }
+    refreshFrame();
+    frames_->focusFrame(focus);
+    if (paged) {
+        const ShpInfo info = shp_info(*view);
+        message(tr("Frames %1-%2 of %3 loaded. Changing the frames of a sprite this big starts "
+                   "a new undo history.")
+                    .arg(info.first)
+                    .arg(info.first + info.frames - 1)
+                    .arg(info.total));
+    }
     return true;
 }
 
@@ -583,7 +643,7 @@ bool ShpSupport::setWindowFrames(int count)
     return pageTo(frame, count);
 }
 
-bool ShpSupport::cleanGate(PictureView* view, bool dialogs, bool paging)
+bool ShpSupport::cleanGate(PictureView* view, bool dialogs, bool paging, bool palette)
 {
     gateMessage_.clear();
     const QString title = paging ? tr("Change Frames") : tr("Save as SHP");
@@ -604,7 +664,7 @@ bool ShpSupport::cleanGate(PictureView* view, bool dialogs, bool paging)
     if (!check.error.isEmpty()) {
         return refuse(check.error);
     }
-    if (check.off_palette > 0) {
+    if (palette && check.off_palette > 0) {
         const QString text = tr("%n pixel(s) are not palette colours (frames %1).", nullptr,
                                 check.off_palette)
                                  .arg(frameList(check.off_frames));

@@ -60,6 +60,14 @@ public:
     // starts a new undo history; the status bar says so. False, with the
     // reason in lastGateMessage(), when it does not happen.
     bool pageTo(int frame, int span = 0);
+    // A frame operation on the active SHP (see shp_frame_op: insert,
+    // duplicate, delete, move, reverse), then focus the frame it names. A
+    // sheet that would grow past the size limit asks as Frames loaded does;
+    // pixels in the gutters are offered the recorded clear first. On a paged
+    // SHP the window must also be on the palette (the paging gate) and the
+    // operation starts a new undo history, which the status bar says. False,
+    // with the reason in lastGateMessage(), when nothing changed.
+    bool frameOp(const QString& op, int first, int count, int to = 0);
     // The bytes of sheet past the limit the user agreed `view` may hold.
     static quint64 allowanceOf(const PictureView* view);
     QString lastGateMessage() const { return gateMessage_; }
@@ -119,9 +127,10 @@ private:
     bool interactive() const;
     void showOffPalette(PictureView* view);
     // The checks before the window's pixels become indices (a save, or a
-    // page change when `paging`): off-palette pixels and gutter bleed, with
-    // the recorded fixes offered when `dialogs` and interactive.
-    bool cleanGate(PictureView* view, bool dialogs, bool paging);
+    // page change when `paging`): off-palette pixels (unless not `palette`)
+    // and gutter bleed, with the recorded fixes offered when `dialogs` and
+    // interactive.
+    bool cleanGate(PictureView* view, bool dialogs, bool paging, bool palette = true);
     void refreshFrame();
     enum class Verdict { Go, Alternative, Refused, Cancelled };
     // Measure `plan` against the limit and the settings; ask (stages the

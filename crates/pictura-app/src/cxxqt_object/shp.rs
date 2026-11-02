@@ -193,9 +193,39 @@ pub mod ffi {
         fn shp_frame_thumbnail(view: &PictureView, index: i32, side: i32) -> ShpThumb;
 
         /// What frame `index`'s thumbnail depends on besides the palette:
-        /// 0 for an original frame off the sheet, a hash of its stored copy
-        /// for an edited one, `u64::MAX` for a frame on the sheet.
+        /// for a frame off the sheet, the original frame it shows (65536
+        /// for a blank added one) or a hash of its stored copy for an edited
+        /// one; `u64::MAX` for a frame on the sheet.
         fn shp_frame_stamp(view: &PictureView, index: i32) -> u64;
+
+        /// The sheet a frame operation would leave (see `shp_frame_op`),
+        /// measured against the size limit; `valid` is false when the
+        /// operation does not apply.
+        fn shp_plan_frames(
+            view: &PictureView,
+            op: &QString,
+            first: i32,
+            count: i32,
+            to: i32,
+        ) -> ShpPlan;
+
+        /// A frame operation: `insert` (`count` blank frames before frame
+        /// `first`; `first` = the frame count appends), `duplicate` (frame
+        /// `first`, the copy right after it), `delete` (`count` frames from
+        /// `first`), `move` (frame `first` to position `to`), `reverse`
+        /// (`count` frames from `first`). On a whole sheet it is one
+        /// recorded edit; on a paged one the window is rebuilt and History
+        /// starts again (the window must be on the palette first, as when
+        /// paging). `allowance` as for `shp_show_frames`. The frame to show
+        /// afterwards, or -1 with the reason in `shp_last_error`.
+        fn shp_frame_op(
+            view: Pin<&mut PictureView>,
+            op: &QString,
+            first: i32,
+            count: i32,
+            to: i32,
+            allowance: u64,
+        ) -> i32;
 
         /// Test seam: the size limit and available memory in bytes (0 keeps
         /// the real value).

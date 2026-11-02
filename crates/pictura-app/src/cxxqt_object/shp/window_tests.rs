@@ -12,14 +12,14 @@ use pictura_shp::parse;
 
 /// 10 frames of 12x10 in 2200 bytes: windows of 4 (2 x 2 cells, 25 x 21 x 4
 /// = 2100 bytes), so frames 0-3, 4-7 and 8-9.
-fn small() -> Limits {
+pub(super) fn small() -> Limits {
     Limits {
         limit: 2200,
         available: None,
     }
 }
 
-fn paged(bytes: &[u8]) -> PictureViewRust {
+pub(super) fn paged(bytes: &[u8]) -> PictureViewRust {
     let opened = open_sheet(
         "/tmp/paged.shp",
         bytes,
@@ -35,13 +35,13 @@ fn paged(bytes: &[u8]) -> PictureViewRust {
     rust
 }
 
-fn head(rust: &PictureViewRust) -> Header {
+pub(super) fn head(rust: &PictureViewRust) -> Header {
     header(doc(rust)).expect("resource")
 }
 
 /// Paint index `index` at canvas pixel `(x, y)` of file frame `frame`, which
 /// must be on the sheet.
-fn paint(rust: &mut PictureViewRust, frame: usize, x: usize, y: usize, index: usize) {
+pub(super) fn paint(rust: &mut PictureViewRust, frame: usize, x: usize, y: usize, index: usize) {
     let h = head(rust);
     assert!(h.window().contains(&frame), "frame {frame} is on the sheet");
     let (x0, y0) = h.layout.cell_origin(frame - h.first);

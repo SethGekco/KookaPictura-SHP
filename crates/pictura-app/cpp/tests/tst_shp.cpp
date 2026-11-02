@@ -236,6 +236,9 @@ private slots:
     void aWholeSheetOverTheLimitOffersTheWindow();
     void growingPastTheLimitAsksAgainPerStage();
     void aBiggerWindowNeedsTheAllowance();
+    void frameOpButtonsEditTheSheetAndUndo();
+    void reverseUsesTheSelectedRange();
+    void aFrameOpPastTheLimitIsRefusedWithoutTheSetting();
 
 private:
     pictura::PictureView* open();
@@ -836,6 +839,111 @@ void ShpTest::aBiggerWindowNeedsTheAllowance()
     const QString out = dir_.filePath(QStringLiteral("window5.shp"));
     QVERIFY(window_->saveActiveAs(out));
     QCOMPARE(readFile(out), sprite());
+}
+
+
+namespace {
+
+int frameCount(const pictura::PictureView& view)
+{
+    return pictura::shp_info(view).frames;
+}
+
+} // namespace
+
+void ShpTest::frameOpButtonsEditTheSheetAndUndo()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    frames->setSelectsCell(false);
+    frames->focusFrame(2);
+    const QRect c2 = frames->cellRect(2);
+    const quint32 colour2 = view->composite_argb(c2.x() + 1, c2.y());
+    const int history = view->history_index();
+
+    frames->opAction(QStringLiteral("duplicate"))->trigger();
+    QCOMPARE(frameCount(*view), kFrames + 1);
+    QTRY_COMPARE(frames->frameCount(), kFrames + 1);
+    QCOMPARE(frames->current(), 3);
+    const QRect c3 = frames->cellRect(3);
+    QCOMPARE(view->composite_argb(c3.x() + 1, c3.y()), colour2);
+    QCOMPARE(view->history_index(), history + 1);
+
+    frames->opAction(QStringLiteral("later"))->trigger();
+    QCOMPARE(frames->current(), 4);
+    const QRect c4 = frames->cellRect(4);
+    QCOMPARE(view->composite_argb(c4.x() + 1, c4.y()), colour2);
+    frames->opAction(QStringLiteral("delete"))->trigger();
+    QCOMPARE(frameCount(*view), kFrames);
+    QCOMPARE(view->history_index(), history + 3);
+
+    // Back to the original order: the save is the original file.
+    const QString out = dir_.filePath(QStringLiteral("ops.shp"));
+    QVERIFY(window_->saveActiveAs(out));
+    QCOMPARE(readFile(out), sprite());
+
+    // Undo walks back through every step, the layout with it.
+    QVERIFY(view->undo());
+    QCOMPARE(frameCount(*view), kFrames + 1);
+    QVERIFY(view->undo());
+    QVERIFY(view->undo());
+    QCOMPARE(frameCount(*view), kFrames);
+    QCOMPARE(view->history_index(), history);
+    QVERIFY(view->redo());
+    QCOMPARE(frameCount(*view), kFrames + 1);
+    window_->refresh();
+    QTRY_COMPARE(frames->frameCount(), kFrames + 1);
+
+    // Insert puts a blank frame after the current one.
+    frames->focusFrame(0);
+    frames->opAction(QStringLiteral("insert"))->trigger();
+    QCOMPARE(frameCount(*view), kFrames + 2);
+    QCOMPARE(frames->current(), 1);
+    const QRect c1 = frames->cellRect(1);
+    QCOMPARE(view->composite_argb(c1.x() + 1, c1.y()) >> 24, 0u);
+}
+
+void ShpTest::reverseUsesTheSelectedRange()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    frames->setSelectsCell(false);
+    const auto colourAt = [&](int frame) {
+        const QRect c = frames->cellRect(frame);
+        return view->composite_argb(c.x() + 1, c.y());
+    };
+    const quint32 one = colourAt(1);
+    const quint32 three = colourAt(3);
+    frames->focusFrame(1);
+    QListWidget* list = frames->list();
+    for (int row = 1; row <= 3; ++row) {
+        list->item(row)->setSelected(true);
+    }
+    QCOMPARE(frames->selectedRange(), qMakePair(1, 3));
+    frames->opAction(QStringLiteral("reverse"))->trigger();
+    QCOMPARE(colourAt(1), three);
+    QCOMPARE(colourAt(3), one);
+    QCOMPARE(frameCount(*view), kFrames);
+}
+
+void ShpTest::aFrameOpPastTheLimitIsRefusedWithoutTheSetting()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    QTRY_COMPARE(support_->frames()->frameCount(), kFrames);
+    // 10 frames of 6x5: a 27x17 sheet, 1836 bytes. 12 frames stay 4x3.
+    const quint64 sheet = quint64(view->document_width()) * view->document_height() * 4;
+    pictura::shp_set_test_limits(sheet, 0);
+    QVERIFY(support_->frameOp(QStringLiteral("insert"), kFrames, 2));
+    QCOMPARE(frameCount(*view), kFrames + 2);
+    // A 13th frame needs a fourth row: over the limit, refused.
+    QVERIFY(!support_->frameOp(QStringLiteral("duplicate"), 0, 1));
+    QCOMPARE(frameCount(*view), kFrames + 2);
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("Allow SHP files over")));
 }
 
 QTEST_MAIN(ShpTest)

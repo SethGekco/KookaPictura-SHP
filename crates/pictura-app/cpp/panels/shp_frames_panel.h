@@ -9,8 +9,10 @@
 #include <QtGui/QPixmap>
 #include <QtWidgets/QWidget>
 
+class QAction;
 class QCheckBox;
 class QLabel;
+class QHBoxLayout;
 class QListWidget;
 class QSpinBox;
 class QToolButton;
@@ -60,13 +62,29 @@ public:
     // "Frames loaded": shown for a paged SHP, holding its window size.
     QSpinBox* windowFrames() const { return windowFrames_; }
 
+    // The frames selected in the list as one range (first, count): the
+    // span from the lowest to the highest selected frame, or the current
+    // frame alone; count 0 when there is none.
+    QPair<int, int> selectedRange() const;
+    // The frame-operation actions by name: insert, duplicate, delete,
+    // earlier, later, reverse. Each asks with frameOpRequested().
+    QAction* opAction(const QString& name) const;
+
 signals:
     // File frame `frame` is off the sheet: its window should be shown.
     void pageRequested(int frame);
     // The user asked for windows of `count` frames.
     void windowSizeRequested(int count);
+    // A frame operation (see shp_frame_op): insert, duplicate, delete,
+    // move, reverse.
+    void frameOpRequested(const QString& op, int first, int count, int to);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    void buildOps(QHBoxLayout* row);
+    void requestOp(const QString& name);
     void rebuild();
     void updateLabel(const ShpInfo& info);
     QPixmap offSheetThumbnail(int index);
@@ -90,6 +108,7 @@ private:
     QCheckBox* grid_ = nullptr;
     QLabel* windowLabel_ = nullptr;
     QSpinBox* windowFrames_ = nullptr;
+    QHash<QString, QAction*> ops_;
 };
 
 } // namespace pictura

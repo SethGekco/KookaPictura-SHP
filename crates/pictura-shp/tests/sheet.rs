@@ -6,8 +6,8 @@ mod common;
 use common::{place, sprite_plane, Rng};
 use pictura_shp::palette::{fallback_palette, nearest, role, unique_colours, Palette, Role};
 use pictura_shp::resource::{
-    find_block, parts, set_block, stored, stored_canvas, Header, ShpResource, StoredFrame,
-    RESOURCE_ID,
+    find_block, identity_origins, parts, set_block, stored, stored_canvas, Header, ShpResource,
+    StoredFrame, RESOURCE_ID,
 };
 use pictura_shp::sheet::{
     auto_columns, clear_gutter, from_sheet, inverse, rebind, snap, to_sheet, window_frames,
@@ -165,8 +165,10 @@ fn the_resource_round_trips_and_keeps_its_neighbours() {
     let resource = ShpResource {
         header: Header::whole(Layout::new(30, 20, 16, 1).unwrap(), repetitive_palette()),
         palette_path: "/pal/unittem.pal".into(),
+        // Bytes 6-7 read as a file of 0x0706 = 1798 frames.
         original: (0..1001u32).map(|v| v as u8).collect(),
         stored: Vec::new(),
+        origins: identity_origins(16, 1798),
     };
     let data = resource.encode();
     assert_eq!(&data[4..6], &[0, 1], "a whole sheet stays version 1");
@@ -219,6 +221,7 @@ fn a_window_and_its_stored_frames_round_trip_as_version_2() {
             StoredFrame::new(3, &plane, 30),
             StoredFrame::new(39, &plane, 30),
         ],
+        origins: identity_origins(40, 1798),
     };
     let data = resource.encode();
     assert_eq!(&data[4..6], &[0, 2]);

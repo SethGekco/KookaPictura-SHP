@@ -361,6 +361,67 @@ pub fn build_with<'a>(
     height: u16,
     count: usize,
     source: Option<&Source>,
+    plane: impl FnMut(usize) -> FramePlane<'a>,
+) -> Result<Vec<u8>, Error> {
+    build_mapped(width, height, count, source, Some, plane)
+}
+
+/// A content-addressed index of a source's drawn frames: the hash of each
+/// full canvas, built on first use.
+struct ContentIndex<'s> {
+    source: &'s Source,
+    by_hash: Option<HashMap<u64, Vec<usize>>>,
+}
+
+fn canvas_hash(plane: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    plane.hash(&mut h);
+    h.finish()
+}
+
+impl ContentIndex<'_> {
+    /// A drawn source frame whose full canvas is exactly `plane`.
+    fn find(&mut self, plane: &[u8]) -> Option<usize> {
+        if plane.iter().all(|&v| v == 0) {
+            return None;
+        }
+        let source = self.source;
+        let by_hash = self.by_hash.get_or_insert_with(|| {
+            let mut map: HashMap<u64, Vec<usize>> = HashMap::new();
+            for j in (0..source.frames.len()).filter(|&j| source.frames[j].drawn) {
+                map.entry(canvas_hash(&source.canvas(j)))
+                    .or_default()
+                    .push(j);
+            }
+            map
+        });
+        by_hash
+            .get(&canvas_hash(plane))?
+            .iter()
+            .copied()
+            .find(|&j| source.canvas(j) == plane)
+    }
+}
+
+/// [`build_with`] with output frame `i` paired with source frame `pair(i)`
+/// (`None`: a frame the source never had) instead of source frame `i`, so
+/// moved, duplicated and inserted frames keep what their own source frame
+/// stored. A [`FramePlane::Pixels`] frame that is not exactly its paired
+/// frame's decode, but is exactly another source frame's, is written as that
+/// frame (content match): a frame moved by hand keeps its bytes too.
+///
+/// A frame keeps its original offset (and gap bytes) only while it sits at
+/// its own position (`pair(i) == Some(i)`); a moved frame is aligned to 8,
+/// so a reorder never leaves a hole. A source frame written twice (a
+/// duplicate) gets a second copy of its bytes; only frames that shared one
+/// data block in the source keep sharing it.
+pub fn build_mapped<'a>(
+    width: u16,
+    height: u16,
+    count: usize,
+    source: Option<&Source>,
+    pair: impl Fn(usize) -> Option<usize>,
     mut plane: impl FnMut(usize) -> FramePlane<'a>,
 ) -> Result<Vec<u8>, Error> {
     check_dimensions(width, height, count)?;
@@ -370,11 +431,28 @@ pub fn build_with<'a>(
     let base = HEADER + FRAME_HEADER * count;
     let mut headers = Vec::with_capacity(FRAME_HEADER * count);
     let mut body: Vec<u8> = Vec::new();
-    // Source offset -> output offset of payloads already copied verbatim.
-    let mut shared: HashMap<u32, (Range<usize>, u32)> = HashMap::new();
+    // Source offset -> (payload, output offset, source frame) of payloads
+    // already copied verbatim.
+    let mut shared: HashMap<u32, (Range<usize>, u32, usize)> = HashMap::new();
+    let mut content = source.map(|source| ContentIndex {
+        source,
+        by_hash: None,
+    });
 
     for i in 0..count {
-        let was = source.and_then(|s| s.frames.get(i).map(|f| (s, f)));
+        let mut given = plane(i);
+        let mut j = source.and_then(|s| pair(i).filter(|&j| j < s.frames.len()));
+        if let (Some(s), Some(index), FramePlane::Pixels(pixels)) =
+            (source, content.as_mut(), &given)
+        {
+            if pixels.len() == expected && j.is_none_or(|j| s.canvas(j)[..] != pixels[..]) {
+                if let Some(found) = index.find(pixels) {
+                    j = Some(found);
+                    given = FramePlane::Unchanged;
+                }
+            }
+        }
+        let was = j.and_then(|j| source.map(|s| (s, &s.frames[j])));
         let old = was.and_then(|(_, f)| {
             let h = &f.header;
             f.drawn.then_some(Rect {
@@ -385,7 +463,6 @@ pub fn build_with<'a>(
             })
         });
         let drawn = was.filter(|(_, f)| f.drawn);
-        let given = plane(i);
         let rect = match &given {
             FramePlane::Unchanged => {
                 if was.is_none() {
@@ -445,7 +522,7 @@ pub fn build_with<'a>(
             (FramePlane::Pixels(pixels), Some((s, f))) => {
                 header.flags = f.header.flags;
                 let sub = crop(pixels, cw, &rect);
-                if Some(rect) == old && s.pixels(i).as_deref() == Some(&sub[..]) {
+                if Some(rect) == old && j.and_then(|j| s.pixels(j)).as_deref() == Some(&sub[..]) {
                     verbatim = Some((s, f));
                     Cow::Borrowed(&s.bytes[f.payload.clone()])
                 } else if f.header.compression() == 2 {
@@ -469,10 +546,11 @@ pub fn build_with<'a>(
             }
         };
 
+        let j = j.unwrap_or(usize::MAX);
         if let Some((_, f)) = verbatim {
             let key = f.header.offset;
-            if let Some((range, offset)) = shared.get(&key) {
-                if *range == f.payload {
+            if let Some((range, offset, first)) = shared.get(&key) {
+                if *range == f.payload && *first != j {
                     header.offset = *offset;
                     headers.extend_from_slice(&header.to_bytes());
                     continue;
@@ -483,7 +561,7 @@ pub fn build_with<'a>(
         let here = base + body.len();
         let mut pad_len = (8 - here % 8) % 8;
         let mut pad: Option<&[u8]> = None;
-        if let Some((s, f)) = drawn {
+        if let Some((s, f)) = drawn.filter(|_| j == i) {
             let want = f.header.offset as usize;
             if want >= here {
                 // The original gap, its bytes rather than zeros, when the
@@ -504,7 +582,7 @@ pub fn build_with<'a>(
         if let Some((_, f)) = verbatim {
             shared
                 .entry(f.header.offset)
-                .or_insert((f.payload.clone(), offset));
+                .or_insert((f.payload.clone(), offset, j));
         }
         body.extend_from_slice(&payload);
         headers.extend_from_slice(&header.to_bytes());

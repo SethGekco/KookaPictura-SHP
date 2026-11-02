@@ -5,6 +5,8 @@
 
 #include "image_view.h"
 
+#include <QtGui/QAction>
+#include <QtGui/QDropEvent>
 #include <QtGui/QIcon>
 #include <QtGui/QPainter>
 #include <QtGui/QPixmap>
@@ -70,6 +72,9 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     row->addWidget(selectCell_);
     row->addWidget(grid_);
     layout->addLayout(row);
+    auto* opsRow = new QHBoxLayout;
+    buildOps(opsRow);
+    layout->addLayout(opsRow);
 
     list_ = new QListWidget(this);
     list_->setObjectName(QStringLiteral("shpFrameList"));
@@ -80,7 +85,18 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     list_->setMovement(QListView::Static);
     list_->setIconSize(QSize(kThumb, kThumb));
     list_->setUniformItemSizes(true);
-    list_->setSelectionMode(QAbstractItemView::SingleSelection);
+    list_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    // Dragging a thumbnail onto another moves the frame there; the drop is
+    // turned into a recorded Move Frame, the list never reorders itself.
+    list_->setDragEnabled(true);
+    list_->setAcceptDrops(true);
+    list_->setDropIndicatorShown(true);
+    list_->setDragDropMode(QAbstractItemView::InternalMove);
+    list_->viewport()->installEventFilter(this);
+    list_->setContextMenuPolicy(Qt::ActionsContextMenu);
+    for (const char* name : {"insert", "duplicate", "delete", "earlier", "later", "reverse"}) {
+        list_->addAction(ops_.value(QLatin1String(name)));
+    }
     layout->addWidget(list_, 1);
 
     connect(list_, &QListWidget::itemClicked, this,
@@ -96,6 +112,96 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
         }
     });
     refresh();
+}
+
+void ShpFramesPanel::buildOps(QHBoxLayout* row)
+{
+    const struct {
+        const char* name;
+        QString text;
+        QString tip;
+    } specs[] = {
+        {"insert", tr("Insert"), tr("Insert a blank frame after the current one")},
+        {"duplicate", tr("Duplicate"), tr("Copy the current frame right after it")},
+        {"delete", tr("Delete"), tr("Delete the selected frames")},
+        {"earlier", tr("Earlier"), tr("Move the current frame one place earlier")},
+        {"later", tr("Later"), tr("Move the current frame one place later")},
+        {"reverse", tr("Reverse"), tr("Reverse the order of the selected frames")},
+    };
+    for (const auto& spec : specs) {
+        auto* action = new QAction(spec.text, this);
+        action->setObjectName(QStringLiteral("shpFrameOp_%1").arg(QLatin1String(spec.name)));
+        action->setToolTip(spec.tip);
+        const QString name = QLatin1String(spec.name);
+        connect(action, &QAction::triggered, this, [this, name] { requestOp(name); });
+        ops_.insert(name, action);
+        auto* button = new QToolButton(this);
+        button->setDefaultAction(action);
+        row->addWidget(button);
+    }
+    row->addStretch(1);
+}
+
+QAction* ShpFramesPanel::opAction(const QString& name) const
+{
+    return ops_.value(name);
+}
+
+QPair<int, int> ShpFramesPanel::selectedRange() const
+{
+    int low = -1;
+    int high = -1;
+    for (const QListWidgetItem* item : list_->selectedItems()) {
+        const int row = list_->row(item);
+        low = low < 0 ? row : std::min(low, row);
+        high = std::max(high, row);
+    }
+    if (low < 0 || (high == low && current_ >= 0 && current_ != low)) {
+        return current_ >= 0 ? qMakePair(current_, 1) : qMakePair(0, 0);
+    }
+    return qMakePair(low, high - low + 1);
+}
+
+void ShpFramesPanel::requestOp(const QString& name)
+{
+    const int total = frameCount();
+    if (!view_ || total <= 0) {
+        return;
+    }
+    const int frame = current_;
+    const auto [first, count] = selectedRange();
+    if (name == QLatin1String("insert")) {
+        emit frameOpRequested(name, frame < 0 ? total : frame + 1, 1, 0);
+    } else if (frame < 0 && name != QLatin1String("delete") && name != QLatin1String("reverse")) {
+        return;
+    } else if (name == QLatin1String("duplicate")) {
+        emit frameOpRequested(name, frame, 1, 0);
+    } else if (name == QLatin1String("earlier") || name == QLatin1String("later")) {
+        const int to = frame + (name == QLatin1String("earlier") ? -1 : 1);
+        if (to >= 0 && to < total) {
+            emit frameOpRequested(QStringLiteral("move"), frame, 1, to);
+        }
+    } else if (count > 0) {
+        emit frameOpRequested(name, first, count, 0);
+    }
+}
+
+bool ShpFramesPanel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == list_->viewport() && event->type() == QEvent::Drop) {
+        auto* drop = static_cast<QDropEvent*>(event);
+        // The press that started the drag made the dragged item current.
+        const int from = list_->currentRow();
+        const QModelIndex at = list_->indexAt(drop->position().toPoint());
+        const int to = at.isValid() ? at.row() : frameCount() - 1;
+        drop->setDropAction(Qt::IgnoreAction);
+        drop->accept();
+        if (view_ && from >= 0 && to >= 0 && to != from && drop->source() == list_) {
+            emit frameOpRequested(QStringLiteral("move"), from, 1, to);
+        }
+        return true;
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void ShpFramesPanel::setView(PictureView* view, ImageView* canvas)
@@ -191,6 +297,9 @@ void ShpFramesPanel::refresh()
     }
     prev_->setEnabled(shp);
     next_->setEnabled(shp);
+    for (QAction* action : std::as_const(ops_)) {
+        action->setEnabled(shp);
+    }
     selectCell_->setEnabled(shp);
     grid_->setEnabled(shp);
     syncGrid();

@@ -337,3 +337,52 @@ pub fn rebind(rgba: &mut [u8], old_unique: &Palette, new_unique: &Palette) -> us
     }
     changed
 }
+
+/// The sheet of `new` frames reflowed from an `old` sheet: new frame `i`
+/// gets old frame `order[i]`'s cell pixels exactly (`None`: a blank cell).
+/// Gutters come out transparent.
+pub fn reflow(old: &Layout, rgba: &[u8], new: &Layout, order: &[Option<usize>]) -> Vec<u8> {
+    let (ow, nw) = (old.sheet_width(), new.sheet_width());
+    let mut out = vec![0u8; nw * new.sheet_height() * 4];
+    let row = new.width.min(old.width) * 4;
+    for (i, from) in order.iter().enumerate().take(new.frames) {
+        let Some(k) = from.filter(|&k| k < old.frames) else {
+            continue;
+        };
+        let (sx, sy) = old.cell_origin(k);
+        let (dx, dy) = new.cell_origin(i);
+        for y in 0..new.height.min(old.height) {
+            let src = ((sy + y) * ow + sx) * 4;
+            let dst = ((dy + y) * nw + dx) * 4;
+            out[dst..dst + row].copy_from_slice(&rgba[src..src + row]);
+        }
+    }
+    out
+}
+
+/// One cell of a sheet as RGBA rows (`layout.width x layout.height`).
+pub fn cell_rgba(layout: &Layout, rgba: &[u8], frame: usize) -> Vec<u8> {
+    let sw = layout.sheet_width();
+    let (x0, y0) = layout.cell_origin(frame);
+    let row = layout.width * 4;
+    let mut out = Vec::with_capacity(row * layout.height);
+    for y in 0..layout.height {
+        let at = ((y0 + y) * sw + x0) * 4;
+        out.extend_from_slice(&rgba[at..at + row]);
+    }
+    out
+}
+
+/// Gutter (and unused-cell) pixels that are not fully transparent.
+pub fn gutter_pixels(layout: &Layout, rgba: &[u8]) -> usize {
+    let sw = layout.sheet_width();
+    let mut count = 0;
+    for (y, row) in rgba.chunks_exact(sw * 4).enumerate() {
+        for (x, px) in row.as_chunks::<4>().0.iter().enumerate() {
+            if px[3] != 0 && layout.frame_at(x, y).is_none() {
+                count += 1;
+            }
+        }
+    }
+    count
+}

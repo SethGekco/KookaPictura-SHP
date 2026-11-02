@@ -16,12 +16,14 @@
 //! - [`palette`] reads and writes `.pal` files and maps colours to indices.
 //! - [`sheet`] lays the frames out on one RGBA sheet and maps it back to
 //!   indices exactly, reporting (never guessing) off-palette pixels.
+//! - [`frames`] inserts, duplicates, deletes, moves and reverses frames.
 //! - [`resource`] is the private image resource that keeps an SHP
 //!   document's layout, palette and original bytes inside the document.
 //!
 //! See `README.md` for the format sources.
 
 mod codec;
+pub mod frames;
 pub mod palette;
 pub mod resource;
 pub mod sheet;
@@ -33,5 +35,6 @@ pub use codec::{
     FrameHeader, Sprite, FRAME_HEADER, HEADER, MAX_FRAMES, MAX_SIDE,
 };
 pub use source::{
-    build, build_frames, build_preserving, build_with, FramePlane, Source, SourceFrame,
+    build, build_frames, build_mapped, build_preserving, build_with, FramePlane, Source,
+    SourceFrame,
 };

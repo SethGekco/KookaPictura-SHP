@@ -18,7 +18,8 @@
 //! | palette: 256 x `0xAARRGGBB` as read from the `.pal` | 1024 |
 //! | palette name, palette path: u16 length + UTF-8 each | 2 + n, 2 + n |
 //! | original file: u32 length + bytes (0 for a sheet never read from a file) | 4 + n |
-//! | version 2 only: edited frames off the sheet: u16 count, then per frame u16 index, u32 length, RLE-Zero lines of its full canvas | 2 + ... |
+//! | version 2 and 3: edited frames off the sheet: u16 count, then per frame u16 index, u32 length, RLE-Zero lines of its full canvas | 2 + ... |
+//! | version 3 only: frame origins: u16 count (the frames in the file), then per frame the original file's frame it came from, `0xFFFF` for an added frame | 2 + 2n |
 //!
 //! Version 1 is a sheet holding every frame. Version 2 is a **window**: the
 //! sheet holds frames `first..first + frames` of `total` (windows are `span`
@@ -27,6 +28,12 @@
 //! **frame store**); every other frame is still the original file's. Version
 //! 1 is written whenever the window is the whole file and nothing is stored,
 //! so a document that never pages carries exactly the block it always did.
+//!
+//! Version 3 adds the **frame origins** once frames were inserted, deleted,
+//! duplicated or moved: frame `i` of the document came from the original
+//! file's frame `origins[i]` (or is new). Saving pairs each frame with its
+//! origin, so a moved frame keeps its stored bytes. Without the field the
+//! origins are the identity: frame `i` is the file's frame `i`.
 //!
 //! The fixed fields come first, so [`Header::read`] answers layout questions
 //! without copying the original file.
@@ -107,7 +114,7 @@ fn version(data: &[u8]) -> Option<u16> {
         return None;
     }
     let v = u16_at(data, 4)?;
-    (v == 1 || v == 2).then_some(v)
+    (1..=3).contains(&v).then_some(v)
 }
 
 impl Header {
@@ -181,6 +188,25 @@ pub fn stored_canvas(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     out
 }
 
+/// Where each document frame came from: `Some(j)` is the original file's
+/// frame `j`, `None` a frame added in the editor.
+pub type Origins = Vec<Option<usize>>;
+
+const NO_ORIGIN: u16 = 0xFFFF;
+
+/// The frames in an SHP file's header; 0 for no file.
+pub fn file_frames(original: &[u8]) -> usize {
+    original
+        .get(6..8)
+        .map_or(0, |b| usize::from(u16::from_le_bytes([b[0], b[1]])))
+}
+
+/// The origins of an untouched frame order: frame `i` is the file's frame
+/// `i`, and frames past the file's count are new.
+pub fn identity_origins(total: usize, file_frames: usize) -> Origins {
+    (0..total).map(|i| (i < file_frames).then_some(i)).collect()
+}
+
 /// The whole block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShpResource {
@@ -191,6 +217,8 @@ pub struct ShpResource {
     pub original: Vec<u8>,
     /// Edited frames outside the window, ascending by frame.
     pub stored: Vec<StoredFrame>,
+    /// Where each of the `header.total` frames came from.
+    pub origins: Origins,
 }
 
 impl ShpResource {
@@ -200,6 +228,7 @@ impl ShpResource {
             &self.palette_path,
             &self.original,
             self.stored.iter().map(|f| (f.frame, &f.data[..])),
+            Some(&self.origins),
         )
     }
 
@@ -213,6 +242,7 @@ impl ShpResource {
             })
             .collect();
         Some(ShpResource {
+            origins: origins(data)?,
             header,
             palette_path,
             original: original.to_vec(),
@@ -223,16 +253,24 @@ impl ShpResource {
 
 /// A block's data from its parts, without first copying the original file
 /// or the stored frames into a [`ShpResource`]. Version 1 unless the sheet
-/// is a window or frames are stored.
+/// is a window or frames are stored (2), or `origins` (`None`: the
+/// identity) is not the identity (3).
 pub fn encode_parts<'a>(
     header: &Header,
     palette_path: &str,
     original: &[u8],
     stored: impl Iterator<Item = (usize, &'a [u8])> + Clone,
+    origins: Option<&[Option<usize>]>,
 ) -> Vec<u8> {
     let l = &header.layout;
-    let paged = header.paged() || stored.clone().next().is_some();
-    let version: u16 = if paged { 2 } else { 1 };
+    let origins =
+        origins.filter(|o| **o != identity_origins(header.total, file_frames(original))[..]);
+    let paged = header.paged() || stored.clone().next().is_some() || origins.is_some();
+    let version: u16 = match (origins.is_some(), paged) {
+        (true, _) => 3,
+        (false, true) => 2,
+        (false, false) => 1,
+    };
     let name = header.palette.name.as_bytes();
     let path = palette_path.as_bytes();
     let name = &name[..name.len().min(usize::from(u16::MAX))];
@@ -268,6 +306,13 @@ pub fn encode_parts<'a>(
             out.extend_from_slice(data);
         }
     }
+    if let Some(origins) = origins {
+        out.extend_from_slice(&(origins.len().min(usize::from(u16::MAX)) as u16).to_be_bytes());
+        for o in origins {
+            let v = o.map_or(NO_ORIGIN, |j| j.min(usize::from(NO_ORIGIN - 1)) as u16);
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+    }
     out
 }
 
@@ -293,11 +338,35 @@ pub fn parts(data: &[u8]) -> Option<(Header, String, &[u8])> {
 /// A block's stored frames (index and RLE-Zero data), without copying them;
 /// empty for version 1.
 pub fn stored(data: &[u8]) -> Option<Vec<(usize, &[u8])>> {
+    stored_and_end(data).map(|(stored, _)| stored)
+}
+
+/// Every frame's origin: the version 3 field, or the identity.
+pub fn origins(data: &[u8]) -> Option<Origins> {
+    let (header, _, original) = parts(data)?;
+    if version(data)? < 3 {
+        return Some(identity_origins(header.total, file_frames(original)));
+    }
+    let (_, at) = stored_and_end(data)?;
+    let count = usize::from(u16_at(data, at)?);
+    if count != header.total {
+        return None;
+    }
+    (0..count)
+        .map(|k| u16_at(data, at + 2 + 2 * k).map(|v| (v != NO_ORIGIN).then_some(usize::from(v))))
+        .collect()
+}
+
+/// Stored frames as (frame, RLE-Zero data) borrowed from a block.
+type StoredSlices<'a> = Vec<(usize, &'a [u8])>;
+
+/// The stored frames and where the data after them starts.
+fn stored_and_end(data: &[u8]) -> Option<(StoredSlices<'_>, usize)> {
     let (_, _, at) = after_strings(data)?;
     let len = u32_at(data, at)? as usize;
     let mut at = at + 4 + len;
     if version(data)? < 2 {
-        return Some(Vec::new());
+        return Some((Vec::new(), at));
     }
     let count = usize::from(u16_at(data, at)?);
     at += 2;
@@ -308,7 +377,7 @@ pub fn stored(data: &[u8]) -> Option<Vec<(usize, &[u8])>> {
         out.push((frame, data.get(at + 6..at + 6 + len)?));
         at += 6 + len;
     }
-    Some(out)
+    Some((out, at))
 }
 
 /// The data of the first `8BIM` block with `id` in an image-resource section

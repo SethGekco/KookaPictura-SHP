@@ -18,7 +18,7 @@ use pictura_core::{BitDepth, BlendMode, ColorMode, Document, Layer};
 use pictura_shp::palette::{fallback_palette, read_palette, role, unique_colours, Palette};
 use pictura_shp::resource::{self, find_block, set_block, Header, ShpResource};
 use pictura_shp::sheet::{self, Layout};
-use pictura_shp::{build_preserving, build_with, frame_canvas, sniff, FramePlane, Source};
+use pictura_shp::{build_mapped, build_preserving, frame_canvas, sniff, FramePlane, Source};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::io::Read as _;
@@ -197,7 +197,7 @@ pub(in crate::cxxqt_object) fn open_sheet(
         total,
         span: count,
     };
-    let data = resource::encode_parts(&header, &choice.path, bytes, std::iter::empty());
+    let data = resource::encode_parts(&header, &choice.path, bytes, std::iter::empty(), None);
     progress(90, "Preparing layers");
     let label = window_label(&header);
     let (doc, history, target) =
@@ -271,6 +271,9 @@ pub(in crate::cxxqt_object) fn encode(doc: &Document) -> Result<Vec<u8>, String>
     let block = block(doc).ok_or("missing SHP data")?;
     let (_, _, original) = resource::parts(block).ok_or("missing SHP data")?;
     let stored = resource::stored(block).ok_or("damaged SHP data")?;
+    let origins = resource::origins(block).ok_or("damaged SHP data")?;
+    let in_order =
+        origins == resource::identity_origins(header.total, resource::file_frames(original));
     let source = if original.is_empty() {
         None
     } else {
@@ -278,28 +281,43 @@ pub(in crate::cxxqt_object) fn encode(doc: &Document) -> Result<Vec<u8>, String>
     };
     let l = &header.layout;
     let (w, h) = (l.width as u16, l.height as u16);
-    if !header.paged() && stored.is_empty() {
+    if !header.paged() && stored.is_empty() && in_order {
         return build_preserving(w, h, &scan.planes, source.as_ref())
             .map_err(|e| format!("cannot write the SHP: {e:?}"));
     }
-    let source = source.ok_or("This paged SHP sheet has lost its source file.")?;
+    if header.paged() && source.is_none() {
+        return fail("This paged SHP sheet has lost its source file.");
+    }
     let window = header.window();
-    let unchanged = stored.is_empty()
+    let unchanged = in_order
+        && stored.is_empty()
+        && source.is_some()
+        && header.total == resource::file_frames(original)
         && window
             .clone()
             .all(|f| scan.planes[f - header.first] == frame_canvas(original, f));
     if unchanged {
         return Ok(original.to_vec());
     }
-    build_with(w, h, header.total, Some(&source), |f| {
-        if window.contains(&f) {
-            FramePlane::Pixels(Cow::Borrowed(&scan.planes[f - header.first]))
-        } else if let Some((_, data)) = stored.iter().find(|(s, _)| *s == f) {
-            FramePlane::Pixels(Cow::Owned(resource::stored_canvas(data, l.width, l.height)))
-        } else {
-            FramePlane::Unchanged
-        }
-    })
+    let blank = || FramePlane::Pixels(Cow::Owned(vec![0u8; l.width * l.height]));
+    build_mapped(
+        w,
+        h,
+        header.total,
+        source.as_ref(),
+        |f| origins[f],
+        |f| {
+            if window.contains(&f) {
+                FramePlane::Pixels(Cow::Borrowed(&scan.planes[f - header.first]))
+            } else if let Some((_, data)) = stored.iter().find(|(s, _)| *s == f) {
+                FramePlane::Pixels(Cow::Owned(resource::stored_canvas(data, l.width, l.height)))
+            } else if origins[f].is_some() {
+                FramePlane::Unchanged
+            } else {
+                blank()
+            }
+        },
+    )
     .map_err(|e| format!("cannot write the SHP: {e:?}"))
 }
 
@@ -444,6 +462,9 @@ pub(in crate::cxxqt_object) fn rebind_rust(
         .and_then(resource::parts)
         .map(|(h, p, o)| (h, p, o.to_vec()))
         .ok_or("This document is not an SHP sheet.")?;
+    let origins = block(doc)
+        .and_then(resource::origins)
+        .ok_or("damaged SHP data")?;
     let stored = block(doc)
         .and_then(resource::stored)
         .ok_or("damaged SHP data")?
@@ -470,6 +491,7 @@ pub(in crate::cxxqt_object) fn rebind_rust(
         palette_path: choice.path,
         original,
         stored,
+        origins,
     }
     .encode();
     doc.image_resources = set_block(
@@ -821,9 +843,87 @@ pub(super) fn shp_last_error() -> QString {
     LAST_ERROR.with(|e| QString::from(e.borrow().as_str()))
 }
 
+pub(super) fn shp_plan_frames(
+    view: &PictureView,
+    op: &QString,
+    first: i32,
+    count: i32,
+    to: i32,
+) -> ShpPlan {
+    let doc = view.rust().session.doc.as_ref();
+    parse_op(&op.to_string(), first, count, to)
+        .zip(doc)
+        .and_then(|(op, doc)| frame_op_plan(doc, op, &Limits::current()))
+        .unwrap_or_else(invalid_plan)
+}
+
+pub(super) fn shp_frame_op(
+    mut view: Pin<&mut PictureView>,
+    op: &QString,
+    first: i32,
+    count: i32,
+    to: i32,
+    allowance: u64,
+) -> i32 {
+    let Some(op) = parse_op(&op.to_string(), first, count, to) else {
+        set_error("That frame operation does not apply here.");
+        return -1;
+    };
+    let paged = view_header(&view).map(|h| h.paged());
+    let limits = Limits::current();
+    match paged {
+        None => {
+            set_error("This document is not an SHP sheet.");
+            -1
+        }
+        Some(false) => {
+            let mut focus = 0;
+            let done = commit(view, op.label(), |rust| {
+                if rust.modal_transform_blocks_edit() {
+                    return fail("Finish the transform first.");
+                }
+                plain_sheet_layer(rust.session.doc.as_ref().ok_or("no document")?)?;
+                focus = whole_op_rust(rust, op, &limits, allowance)?;
+                Ok(1)
+            });
+            if done < 0 {
+                -1
+            } else {
+                focus as i32
+            }
+        }
+        Some(true) => {
+            let outcome = {
+                let mut rust = view.as_mut().rust_mut();
+                if rust.modal_transform_blocks_edit() {
+                    Err("Finish the transform first.".to_string())
+                } else {
+                    paged_op_rust(&mut rust, op, &limits, allowance)
+                }
+            };
+            match outcome {
+                Ok(focus) => {
+                    set_error("");
+                    view.as_mut().recomposite();
+                    view.as_mut().session_cancelled();
+                    focus as i32
+                }
+                Err(message) => {
+                    set_error(&message);
+                    -1
+                }
+            }
+        }
+    }
+}
+
 #[path = "window.rs"]
 mod window;
 use window::*;
+
+#[path = "frames.rs"]
+mod frames;
+use frames::*;
 
 #[cfg(test)]
 #[path = "tests.rs"]
@@ -832,3 +932,7 @@ mod tests;
 #[cfg(test)]
 #[path = "window_tests.rs"]
 mod window_tests;
+
+#[cfg(test)]
+#[path = "frames_tests.rs"]
+mod frames_tests;
