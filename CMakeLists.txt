@@ -533,6 +533,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/shp_authoring.cpp
     crates/pictura-app/cpp/shp_palettes.cpp
     crates/pictura-app/cpp/shp_support.cpp
+    crates/pictura-app/cpp/shp_support_unit.cpp
     crates/pictura-app/cpp/image_view_smart_guides.cpp
     crates/pictura-app/cpp/smart_guides.cpp
     crates/pictura-app/cpp/image_view_channels.cpp
@@ -652,6 +653,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/shp_playback_panel.cpp
     crates/pictura-app/cpp/shp_undo_focus.cpp
     crates/pictura-app/cpp/panels/shp_palette_panel.cpp
+    crates/pictura-app/cpp/panels/shp_unit_panel.cpp
     crates/pictura-app/cpp/panels/histogram_panel.cpp
     crates/pictura-app/cpp/panels/adjustments_panel.cpp
     crates/pictura-app/cpp/panels/placeholder_panel.cpp
@@ -852,6 +854,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/shp_playback_panel.h
     crates/pictura-app/cpp/shp_undo_focus.h
     crates/pictura-app/cpp/panels/shp_palette_panel.h
+    crates/pictura-app/cpp/panels/shp_unit_panel.h
     crates/pictura-app/cpp/shp_authoring.h
     crates/pictura-app/cpp/shp_palettes.h
     crates/pictura-app/cpp/shp_support.h

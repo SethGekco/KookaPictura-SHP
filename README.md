@@ -40,9 +40,16 @@ effect art directly.
   step that would run one of them stops the playback, since they would break
   the frame grid). Hovering the canvas reads out the palette index under the
   cursor in the Palette panel.
+  A Unit panel handles the shadow half of unit sprites (TS/RA2 keep each
+  frame's shadow in the second half of the frames, as index 1): it is found
+  when the sprite opens and marked in the Frames panel, Generate casts
+  shadows from the art (offset and lean; it adds the shadow frames when a
+  sprite has none), Clear empties them, a view-only underlay shows each
+  shadow under its frame, and Save warns when a shadow frame holds other
+  colors.
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: shadow tools,
-  house-colour preview (see [`SHP-PLAN.md`](SHP-PLAN.md)).
+  byte-identical. Next: house-colour preview (see
+  [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
   opens SHPs as sprite sheets (a small converter saves them back). Do not

@@ -4,6 +4,7 @@
 // (install, retarget, refresh) listed in crates/pictura-shp/HOOKS.md.
 #pragma once
 
+#include <QtCore/QList>
 #include <QtCore/QObject>
 #include <QtCore/QPointer>
 #include <QtCore/QString>
@@ -23,6 +24,7 @@ class ShpFramesPanel;
 class ShpPalettePanel;
 class ShpPlaybackPanel;
 class ShpUndoFocus;
+class ShpUnitPanel;
 enum class ToolId;
 struct ShpPlan;
 
@@ -43,6 +45,7 @@ public:
     ShpPalettePanel* palette() const { return palette_; }
     ShpPlaybackPanel* playback() const { return playback_; }
     ShpUndoFocus* undoFocus() const { return undoFocus_; }
+    ShpUnitPanel* unit() const { return unit_; }
 
     // The active document changed: follow it, and show the dock when an
     // SHP becomes active.
@@ -101,6 +104,17 @@ public:
     // "Snap Frame to Palette" on file frame `frame` (on the sheet): one
     // recorded step; the pixels changed, or -1 (the reason is shown).
     int snapFrame(int frame);
+    // --- Unit tools (shp_support_unit.cpp) --------------------------------
+    // Generate the shadows of art frames `art` (index 1, moved by `dx`,
+    // `dy`, leaning `skew` pixels per row). A sprite without a shadow half
+    // gets one first, as many blank frames as it has, through the size
+    // check. One recorded step on a whole sheet; on a paged one the window
+    // must pass the paging gate and History starts again. The frames
+    // written, or -1 with the reason in lastGateMessage().
+    int generateShadows(const QList<int>& art, int dx, int dy, double skew);
+    // Clear shadow frames `frames` (one recorded step, as above).
+    int clearShadows(const QList<int>& frames);
+
     // The bytes of sheet past the limit the user agreed `view` may hold.
     static quint64 allowanceOf(const PictureView* view);
     QString lastGateMessage() const { return gateMessage_; }
@@ -179,6 +193,13 @@ private:
     // and gutter bleed, with the recorded fixes offered when `dialogs` and
     // interactive.
     bool cleanGate(PictureView* view, bool dialogs, bool paging, bool palette = true);
+    // Save warnings for unit sprites (shp_support_unit.cpp): shadow frames
+    // holding colors other than index 0 and 1. Never refuses without
+    // dialogs; false when the user cancels.
+    bool unitSaveCheck(PictureView* view, bool asks);
+    // Report a refused unit-tool step (status bar, a warning when asking);
+    // returns -1.
+    int unitRefused(const QString& text);
     void refreshFrame();
     void refreshCommands(bool shp);
     void refreshCropTools(bool shp);
@@ -202,6 +223,7 @@ private:
     ShpPalettePanel* palette_ = nullptr;
     ShpPlaybackPanel* playback_ = nullptr;
     ShpUndoFocus* undoFocus_ = nullptr;
+    ShpUnitPanel* unit_ = nullptr;
     bool commandsForShp_ = false;
     QMetaObject::Connection hoverConnection_;
     QAction* newShpAction_ = nullptr;

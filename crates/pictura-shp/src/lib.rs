@@ -17,6 +17,7 @@
 //! - [`sheet`] lays the frames out on one RGBA sheet and maps it back to
 //!   indices exactly, reporting (never guessing) off-palette pixels.
 //! - [`frames`] inserts, duplicates, deletes, moves and reverses frames.
+//! - [`unit`] finds, checks and casts the shadow half of a unit sprite.
 //! - [`resource`] is the private image resource that keeps an SHP
 //!   document's layout, palette and original bytes inside the document.
 //!
@@ -28,6 +29,7 @@ pub mod palette;
 pub mod resource;
 pub mod sheet;
 mod source;
+pub mod unit;
 
 pub use codec::{
     decode_frame, decode_prefixed_line, decode_rle_line, encode_prefixed, encode_rle,

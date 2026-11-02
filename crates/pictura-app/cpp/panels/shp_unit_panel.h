@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// KookaPictura-SHP fork: the Unit panel of an SHP document (the shadow half
+// of a unit sprite).
+#pragma once
+
+#include <QtCore/QHash>
+#include <QtCore/QList>
+#include <QtCore/QPair>
+#include <QtCore/QPointer>
+#include <QtGui/QImage>
+#include <QtWidgets/QWidget>
+
+#include "image_view.h"
+
+class QAction;
+class QCheckBox;
+class QDoubleSpinBox;
+class QLabel;
+class QSpinBox;
+
+namespace pictura {
+
+class PictureView;
+class ShpFramesPanel;
+
+// TS/RA2 unit sprites hold their shadows in the second half of the frames.
+// "Shadow frames" says whether this sprite does (found from the pixels the
+// first time a document is shown, then up to the user, per document); the
+// Frames panel marks those frames and Save warns about shadow frames that
+// hold colors other than index 0 and 1. Generate casts shadows from the
+// art (index 1, with an offset and a lean); Clear empties shadow frames.
+// The underlay shows each frame's shadow under it, view only.
+class ShpUnitPanel : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit ShpUnitPanel(ShpFramesPanel* frames, QWidget* parent = nullptr);
+
+    void setView(PictureView* view);
+    void refresh();
+
+    // The first shadow frame of `view` while its second half counts as
+    // shadow frames (an even frame count), else 0.
+    static int shadowHalfOf(PictureView* view);
+    // Whether `view`'s second half counts as shadow frames; decided from
+    // the pixels (shp_shadow_detect) the first time it is asked.
+    static bool shadowsOf(PictureView* view);
+    static void setShadowsOf(PictureView* view, bool on);
+    int shadowHalf() const;
+
+    // The art frames "Generate" works on (`all`: every art frame; else the
+    // selected frames, a shadow frame standing for its art frame) and the
+    // shadow frames "Clear" works on.
+    QList<int> artFrames(bool all) const;
+    QList<int> shadowFrames(bool all) const;
+
+    QCheckBox* shadowToggle() const { return shadows_; }
+    QCheckBox* underlay() const { return underlay_; }
+    QSpinBox* offsetX() const { return dx_; }
+    QSpinBox* offsetY() const { return dy_; }
+    QDoubleSpinBox* skew() const { return skew_; }
+    QLabel* shadowReadout() const { return readout_; }
+    // generate, generateAll, clear, clearAll.
+    QAction* action(const QString& name) const { return actions_.value(name); }
+
+signals:
+    void generateRequested(const QList<int>& art, int dx, int dy, double skew);
+    void clearRequested(const QList<int>& frames);
+    void message(const QString& text);
+
+private:
+    void decorate(ImageView::ShpGrid& grid);
+    void sync();
+    QImage offSheetShadow(int frame);
+
+    ShpFramesPanel* frames_ = nullptr;
+    QPointer<PictureView> view_;
+    QCheckBox* shadows_ = nullptr;
+    QCheckBox* underlay_ = nullptr;
+    QSpinBox* dx_ = nullptr;
+    QSpinBox* dy_ = nullptr;
+    QDoubleSpinBox* skew_ = nullptr;
+    QLabel* readout_ = nullptr;
+    QHash<QString, QAction*> actions_;
+    // The active frame's shadow when it is off a paged sheet: frame, stamp.
+    QPair<int, quint64> shadowKey_{-1, 0};
+    QImage shadowImage_;
+};
+
+} // namespace pictura

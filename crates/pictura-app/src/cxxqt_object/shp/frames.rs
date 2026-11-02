@@ -148,7 +148,7 @@ pub(in crate::cxxqt_object) fn whole_op_rust(
 /// `rgba` laid out as `layout` (the canvas resized top-left when its size
 /// changes, which drops the selection) and the resource is rewritten with
 /// `origins`.
-fn install_whole(
+pub(super) fn install_whole(
     rust: &mut PictureViewRust,
     layout: Layout,
     palette: Palette,

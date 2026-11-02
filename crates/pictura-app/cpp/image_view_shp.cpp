@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // KookaPictura-SHP fork: the frame grid of an SHP sheet, drawn over the
-// canvas, the onion skin and the off-palette marks. View-only: none of it
+// canvas, the onion skin, the shadow underlay and the off-palette marks. View-only: none of it
 // touches the document or a sampled color.
 
 #include "image_view.h"
@@ -18,7 +18,9 @@ void ImageView::setShpGrid(const ShpGrid& grid)
     if (g.cell == grid.cell && g.cols == grid.cols && g.frames == grid.frames
         && g.gutter == grid.gutter && g.active == grid.active && g.visible == grid.visible
         && g.onion == grid.onion && g.onionOpacity == grid.onionOpacity
-        && g.offPalette == grid.offPalette) {
+        && g.offPalette == grid.offPalette && g.first == grid.first
+        && g.shadowHalf == grid.shadowHalf && g.shadowUnderlay == grid.shadowUnderlay
+        && g.activeShadow.cacheKey() == grid.activeShadow.cacheKey()) {
         return;
     }
     shpGrid_ = grid;
@@ -48,14 +50,7 @@ void ImageView::paintShpOnion(QPainter& painter)
         return QPoint((i % g.cols) * (g.cell.width() + g.gutter),
                       (i / g.cols) * (g.cell.height() + g.gutter));
     };
-    const auto cellImage = [&](int i) {
-        const QRect r(origin(i), g.cell);
-        if (!image_.isNull()) {
-            return image_.copy(r);
-        }
-        return levelProvider_.crop ? levelProvider_.crop(0, r.x(), r.y(), r.width(), r.height())
-                                   : QImage();
-    };
+    const auto cellImage = [this](int i) { return shpCellImage(i); };
     QImage ghost(g.cell, QImage::Format_ARGB32_Premultiplied);
     ghost.fill(Qt::transparent);
     bool any = false;
@@ -104,6 +99,99 @@ void ImageView::paintShpOnion(QPainter& painter)
     painter.restore();
 }
 
+// Cell `cell` of the sheet as the composite shows it.
+QImage ImageView::shpCellImage(int cell) const
+{
+    const ShpGrid& g = shpGrid_;
+    if (cell < 0 || cell >= g.frames || g.cols <= 0) {
+        return {};
+    }
+    const QRect r(QPoint((cell % g.cols) * (g.cell.width() + g.gutter),
+                         (cell / g.cols) * (g.cell.height() + g.gutter)),
+                  g.cell);
+    if (!image_.isNull()) {
+        return image_.copy(r);
+    }
+    return levelProvider_.crop ? levelProvider_.crop(0, r.x(), r.y(), r.width(), r.height())
+                               : QImage();
+}
+
+// Shadow underlay: each art cell on screen shows its shadow frame (any
+// non-transparent pixel of it) as a half-transparent black under the art's
+// own pixels. View-only like the onion skin. A shadow frame off the sheet is
+// shown only for the active frame (`activeShadow`); at most
+// kShadowBudget pixels are drawn per paint, the active cell first.
+namespace {
+constexpr qint64 kShadowBudget = 4 * 1024 * 1024;
+} // namespace
+
+void ImageView::paintShpShadow(QPainter& painter)
+{
+    const ShpGrid& g = shpGrid_;
+    if (!g.shadowUnderlay || g.shadowHalf <= 0 || g.cell.isEmpty() || g.cols <= 0) {
+        return;
+    }
+    const qint64 cellPixels = qint64(g.cell.width()) * g.cell.height();
+    if (cellPixels > kOnionMaxPixels) {
+        return;
+    }
+    const auto origin = [&](int i) {
+        return QPoint((i % g.cols) * (g.cell.width() + g.gutter),
+                      (i / g.cols) * (g.cell.height() + g.gutter));
+    };
+    // The visible part of the document, in sheet pixels.
+    const QRectF visible = viewRect();
+    const QRectF docVisible((visible.left() - offset_.x()) / zoom_,
+                            (visible.top() - offset_.y()) / zoom_, visible.width() / zoom_,
+                            visible.height() / zoom_);
+    QList<int> cells;
+    if (g.active >= 0 && g.active < g.frames) {
+        cells << g.active;
+    }
+    for (int c = 0; c < g.frames; ++c) {
+        if (c != g.active && QRectF(origin(c), g.cell).intersects(docVisible)) {
+            cells << c;
+        }
+    }
+    painter.save();
+    painter.setTransform(viewRotation());
+    painter.setClipRect(viewRect());
+    painter.translate(offset_);
+    painter.scale(zoom_, zoom_);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    qint64 budget = kShadowBudget;
+    for (const int c : std::as_const(cells)) {
+        const int art = g.first + c;
+        if (art >= g.shadowHalf || budget < cellPixels) {
+            continue;
+        }
+        const int shadowCell = art + g.shadowHalf - g.first;
+        QImage shadow;
+        if (shadowCell >= 0 && shadowCell < g.frames) {
+            shadow = shpCellImage(shadowCell);
+        } else if (c == g.active) {
+            shadow = g.activeShadow;
+        }
+        if (shadow.isNull()) {
+            continue;
+        }
+        budget -= cellPixels;
+        QImage shade = shadow.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        {
+            QPainter p(&shade);
+            p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            p.fillRect(shade.rect(), QColor(0, 0, 0, 128));
+            const QImage artPixels = shpCellImage(c);
+            if (!artPixels.isNull()) {
+                p.setCompositionMode(QPainter::CompositionMode_DestinationOut);
+                p.drawImage(0, 0, artPixels);
+            }
+        }
+        painter.drawImage(QPointF(origin(c)), shade);
+    }
+    painter.restore();
+}
+
 // Drawn in the view frame so the lines stay one screen pixel wide at any
 // zoom: each cell is outlined just outside its pixels (in the gutter), and
 // the active cell gets a second, highlighted outline.
@@ -113,6 +201,7 @@ void ImageView::paintShpGrid(QPainter& painter)
     if (docSize_.isEmpty() || g.cell.isEmpty() || g.cols <= 0 || g.frames <= 0) {
         return;
     }
+    paintShpShadow(painter);
     paintShpOnion(painter);
     painter.save();
     painter.setTransform(viewRotation());

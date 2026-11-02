@@ -960,6 +960,13 @@ mod frames;
 use frames::*;
 pub(super) use frames::{shp_frame_size, shp_plan_frame_size};
 
+#[path = "unit.rs"]
+mod unit;
+pub(super) use unit::{
+    shp_clear_shadows, shp_generate_shadows, shp_plan_shadow_half, shp_shadow_detect,
+    shp_shadow_violations,
+};
+
 #[path = "authoring.rs"]
 mod authoring;
 pub(super) use authoring::{shp_convert, shp_new_document, shp_plan_sheet};
@@ -979,3 +986,7 @@ mod frames_tests;
 #[cfg(test)]
 #[path = "authoring_tests.rs"]
 mod authoring_tests;
+
+#[cfg(test)]
+#[path = "unit_tests.rs"]
+mod unit_tests;

@@ -183,6 +183,38 @@ QAction* ShpFramesPanel::opAction(const QString& name) const
     return ops_.value(name);
 }
 
+void ShpFramesPanel::setShadowHalf(int half)
+{
+    if (half == shadowHalf_) {
+        return;
+    }
+    shadowHalf_ = half;
+    markShadows();
+    if (view_ && shp_info(*view_).valid) {
+        updateLabel(shp_info(*view_));
+    }
+}
+
+void ShpFramesPanel::setGridDecorator(std::function<void(ImageView::ShpGrid&)> decorator)
+{
+    decorator_ = std::move(decorator);
+    syncGrid();
+}
+
+// Shadow frames read "12 S" with a tooltip naming their art frame.
+void ShpFramesPanel::markShadows()
+{
+    for (int i = 0; i < list_->count(); ++i) {
+        QListWidgetItem* item = list_->item(i);
+        const bool shadow = shadowHalf_ > 0 && i >= shadowHalf_;
+        item->setText(shadow ? tr("%1 S").arg(i) : QString::number(i));
+        const QString base = onSheet(i) ? tr("Frame %1").arg(i)
+                                        : tr("Frame %1 (click to load it)").arg(i);
+        item->setToolTip(shadow ? base + tr(", the shadow of frame %1").arg(i - shadowHalf_)
+                                : base);
+    }
+}
+
 QPair<int, int> ShpFramesPanel::selectedRange() const
 {
     int low = -1;
@@ -352,6 +384,9 @@ void ShpFramesPanel::updateLabel(const ShpInfo& info)
                                  : tr("%1 frames, %2x%3").arg(info.total)
                                        .arg(info.width)
                                        .arg(info.height);
+    if (current_ >= 0 && shadowHalf_ > 0 && current_ >= shadowHalf_) {
+        text += tr(", shadow of %1").arg(current_ - shadowHalf_);
+    }
     if (info.frames < info.total) {
         text += tr(" (%1-%2 loaded)").arg(info.first).arg(info.first + info.frames - 1);
     }
@@ -406,9 +441,8 @@ void ShpFramesPanel::rebuild()
             auto* item = new QListWidgetItem(QIcon(pixmap), QString::number(i), list_);
             item->setTextAlignment(Qt::AlignHCenter);
         }
-        list_->item(i)->setToolTip(cell.isNull() ? tr("Frame %1 (click to load it)").arg(i)
-                                                 : tr("Frame %1").arg(i));
     }
+    markShadows();
     if (current_ >= frames) {
         current_ = -1;
     }
@@ -467,6 +501,10 @@ void ShpFramesPanel::syncGrid()
             if (offMarks_->isChecked()) {
                 updateOffPalette();
                 grid.offPalette = offPoints_;
+            }
+            grid.first = info.first;
+            if (decorator_) {
+                decorator_(grid);
             }
         }
     }

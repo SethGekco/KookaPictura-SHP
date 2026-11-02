@@ -480,6 +480,15 @@ public:
         int onionOpacity = 35;
         // Off-palette pixels to mark, sheet coordinates (empty: none).
         QVector<QPoint> offPalette;
+        // Shadow underlay: file frames from `shadowHalf` (0: none) are the
+        // shadows of the frames before it, `first` is the file frame in
+        // cell 0. Each art cell shows its shadow under its own pixels;
+        // `activeShadow` is the active frame's shadow when that is off the
+        // sheet (a paged window).
+        int first = 0;
+        int shadowHalf = 0;
+        bool shadowUnderlay = false;
+        QImage activeShadow;
     };
     void setShpGrid(const ShpGrid& grid);
     const ShpGrid& shpGrid() const { return shpGrid_; }
@@ -693,6 +702,8 @@ private:
     void paintShpGrid(QPainter& painter);
     void paintShpOnion(QPainter& painter);
     void paintShpOffPalette(QPainter& painter);
+    void paintShpShadow(QPainter& painter);
+    QImage shpCellImage(int cell) const;
     void paintSmartGuides(QPainter& painter);
     QString formatGuideDistance(double documentPixels) const;
     QList<SmartGuideLine> smartGuideLines_;

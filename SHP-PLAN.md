@@ -705,3 +705,65 @@ Phase 2, authoring (recorded as each piece landed):
   frames keep their header fields and data bytes. A 3-frame New SHP
   painted in the app reads identically in pictura-shp and Ochre's
   `cncshp`. Self-test 471 passed.
+
+Phase 3, unit tools (recorded as each piece landed):
+
+- **The shadow half is found from the pixels and then belongs to the
+  user.** `pictura_shp::unit::split` is the plan's rule (an even frame
+  count whose second half uses only indices 0 and 1, ported from Ochre's
+  `SplitShadowsCommand`) plus one condition: some frame of the first half
+  holds art, so a sprite of blank or all-shadow frames is not a unit.
+  Empty shadow frames count, so a unit whose shadows were cleared keeps its
+  shadow half. The result only sets a per-document "Second half is shadow
+  frames" box (Unit panel, a property of the view, not saved) the first
+  time the document is shown; from then on the box decides. Detection
+  alone could not stay the source of truth: painting one color into a
+  shadow frame would make the split disappear, and with it the check that
+  should report that pixel. Frames panel: shadow frames read "12 S", their
+  tooltip and the frame label name the art frame; the Unit panel reads
+  "Shadows: frames k-N-1".
+- **Corpus census** (`tests/unit.rs`, ignored, `PICTURA_SHP_CORPUS_LIST`;
+  2026-11-02, the owner's 4,819 files, 88 s, 213 MB peak): of 4,810 valid
+  SHPs, 3,503 have an even frame count and **2,899 have a shadow half**
+  by the rule above; in **1,245** of those at least one shadow frame holds
+  index 1. The rest have an empty second half: RA2's own infantry are like
+  that (vanilla `gi.shp` and `ggi.shp`: 744 frames, art 0-371, frames
+  372-743 all empty, w = h = 0).
+- **Shadow frames that hold other colors are a save warning, not a
+  refusal.** The plan does not ask for a refusal and the file is a valid
+  SHP. With dialogs: [Save Anyway] (default) / [Show Me] (focuses the first
+  such frame) / [Cancel]; without (offscreen, the control server) the save
+  goes ahead and the status bar says which frames.
+- **Generate** casts each art frame's silhouette (every pixel that is not
+  transparent, off-palette work included) as index 1 into its shadow frame,
+  moved by an offset and leaning by a skew in pixels per row above the
+  art's lowest row, so the shadow stays attached where the art stands
+  (`unit::silhouette`; rows move whole, so the lean leaves no holes; what
+  leaves the canvas is dropped). It replaces the shadow frame's contents.
+  "Generate" works on the selected frames (a selected shadow frame stands
+  for its art frame), "Generate All" on every art frame; "Clear" and "Clear
+  All" likewise empty shadow frames. A sprite with no shadow half gets one
+  first: as many blank frames as it has, appended through the size check
+  (`shp_plan_shadow_half`, the same stages as Insert Frames), then cast, in
+  the same recorded edit; the box is turned on.
+- **Whole sheets: one recorded edit** ("Generate Shadows", "Clear
+  Shadows"); undo restores frames, layout and resource together. **Paged
+  sprites: a history edge, like a paged frame operation.** The window must
+  pass the paging gate, shadows are cast from the frames as they are (on
+  the sheet, in the frame store or in the file) and written to the sheet or
+  the frame store, and the window is rebuilt with a fresh History; the
+  status bar says so. A paged sprite without a shadow half gets one as a
+  paged Insert first (two edges). Art frames and their shadows are usually
+  in different windows (`sppnuke.shp`'s shadows start at frame 68), which
+  is why a recorded edit is not possible there.
+- **The shadow underlay** (Unit panel "Show shadows under the art") is
+  drawn by `ImageView::paintShpShadow` before the onion skin, in the view
+  only: each art cell on screen shows its shadow frame as 50% black where
+  the art itself is transparent. At most 4 megapixels of cells per paint,
+  the active cell first, and none over 1 megapixel (the onion skin's cap).
+  On a paged window the shadow frames off the sheet are shown for the
+  active frame only, decoded from the frame store or the file at full size
+  once per frame (cached by its stamp), not in the paint path. Tested: the
+  document, the eyedropper's samples, the composite and the saved bytes do
+  not change.
+

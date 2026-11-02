@@ -293,6 +293,42 @@ pub mod ffi {
             allowance: u64,
         ) -> bool;
 
+        /// The first shadow frame when the frames look like a unit sprite
+        /// with a shadow half (an even count, the second half only indices 0
+        /// and 1, art in the first half), else -1.
+        fn shp_shadow_detect(view: &PictureView) -> i32;
+
+        /// The shadow frames from `half` on that hold an index other than 0
+        /// and 1 (the save gate warns about them).
+        fn shp_shadow_violations(view: &PictureView, half: i32) -> Vec<i32>;
+
+        /// The sheet after adding a shadow half (as many blank frames as
+        /// there are), measured against the size limit.
+        fn shp_plan_shadow_half(view: &PictureView) -> ShpPlan;
+
+        /// "Generate Shadows": each art frame in `art` casts its silhouette
+        /// as index 1 into its shadow frame (`half` + frame), moved by
+        /// `dx`, `dy` and leaning `skew` pixels per row above the art's
+        /// base. `half` 0 adds the shadow half first (size-checked; the
+        /// allowance as for `shp_frame_op`). One recorded edit on a whole
+        /// sheet; on a paged one the window is rebuilt and History starts
+        /// again. The frames written, or -1 with the reason in
+        /// `shp_last_error`.
+        fn shp_generate_shadows(
+            view: Pin<&mut PictureView>,
+            half: i32,
+            art: &[i32],
+            dx: i32,
+            dy: i32,
+            skew: f64,
+            allowance: u64,
+        ) -> i32;
+
+        /// "Clear Shadows": the shadow frames in `frames` (each at least
+        /// `half`, the first shadow frame) become transparent, recorded like
+        /// `shp_generate_shadows`. The frames cleared, or -1.
+        fn shp_clear_shadows(view: Pin<&mut PictureView>, half: i32, frames: &[i32]) -> i32;
+
         /// Test seam: the size limit and available memory in bytes (0 keeps
         /// the real value).
         fn shp_set_test_limits(limit: u64, available: u64);

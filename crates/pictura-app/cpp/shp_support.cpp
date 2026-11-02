@@ -12,6 +12,7 @@
 #include "panels/shp_frames_panel.h"
 #include "panels/shp_palette_panel.h"
 #include "panels/shp_playback_panel.h"
+#include "panels/shp_unit_panel.h"
 #include "shp_undo_focus.h"
 #include "tools.h"
 
@@ -102,16 +103,26 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     frames_ = new ShpFramesPanel(split);
     playback_ = new ShpPlaybackPanel(split);
     palette_ = new ShpPalettePanel(colors, split);
+    unit_ = new ShpUnitPanel(frames_, split);
     split->addWidget(frames_);
     split->addWidget(playback_);
+    split->addWidget(unit_);
     split->addWidget(palette_);
     split->setStretchFactor(0, 3);
     split->setStretchFactor(1, 1);
     split->setStretchFactor(2, 1);
+    split->setStretchFactor(3, 1);
     dock_->setWidget(split);
     dock_->hide();
     undoFocus_ = new ShpUndoFocus(frames_, this);
     connect(palette_, &ShpPalettePanel::message, this, &ShpSupport::message);
+    connect(unit_, &ShpUnitPanel::message, this, &ShpSupport::message);
+    connect(unit_, &ShpUnitPanel::generateRequested, this,
+            [this](const QList<int>& art, int dx, int dy, double skew) {
+                generateShadows(art, dx, dy, skew);
+            });
+    connect(unit_, &ShpUnitPanel::clearRequested, this,
+            [this](const QList<int>& frames) { clearShadows(frames); });
     connect(frames_, &ShpFramesPanel::pageRequested, this, [this](int frame) { pageTo(frame); });
     connect(frames_, &ShpFramesPanel::windowSizeRequested, this,
             [this](int count) { setWindowFrames(count); });
@@ -250,6 +261,7 @@ void ShpSupport::setView(PictureView* view, ImageView* canvas)
 {
     view_ = view;
     const bool shp = view && shp_info(*view).valid;
+    unit_->setView(view);
     frames_->setView(view, canvas);
     // The Palette panel reads out the index under the cursor.
     disconnect(hoverConnection_);
@@ -285,6 +297,7 @@ void ShpSupport::refresh()
         dock_->show();
     }
     wasShp_ = shp;
+    unit_->refresh();
     frames_->refresh();
     playback_->refresh();
     palette_->refresh();
@@ -338,7 +351,7 @@ bool ShpSupport::saveGate(PictureView* view, bool dialogs, const QString& path)
     if (view && !shp_info(*view).valid && !path.isEmpty()) {
         return convertForSave(view, path, dialogs);
     }
-    return cleanGate(view, dialogs, false);
+    return cleanGate(view, dialogs, false) && unitSaveCheck(view, dialogs && interactive());
 }
 
 bool ShpSupport::newShp(int width, int height, int frames, const QString& palette)

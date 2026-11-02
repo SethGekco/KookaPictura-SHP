@@ -11,6 +11,10 @@
 #include <QtGui/QPixmap>
 #include <QtWidgets/QWidget>
 
+#include <functional>
+
+#include "image_view.h"
+
 class QAction;
 class QCheckBox;
 class QLabel;
@@ -21,7 +25,6 @@ class QToolButton;
 
 namespace pictura {
 
-class ImageView;
 class PictureView;
 struct ShpInfo;
 
@@ -82,6 +85,15 @@ public:
     // earlier, later, reverse. Each asks with frameOpRequested().
     QAction* opAction(const QString& name) const;
 
+    // Frames from `half` on are shadow frames (0: none): their thumbnails
+    // are marked and the label names the art frame a shadow belongs to.
+    void setShadowHalf(int half);
+    int shadowHalf() const { return shadowHalf_; }
+    // Called on every canvas grid update to add further overlays.
+    void setGridDecorator(std::function<void(ImageView::ShpGrid&)> decorator);
+    // Push the grid (and the decorator's overlays) to the canvas again.
+    void syncGrid();
+
 signals:
     // File frame `frame` is off the sheet: its window should be shown.
     void pageRequested(int frame);
@@ -104,8 +116,8 @@ private:
     void rebuild();
     void updateLabel(const ShpInfo& info);
     QPixmap offSheetThumbnail(int index);
-    void syncGrid();
     void updateOffPalette();
+    void markShadows();
 
     QPointer<PictureView> view_;
     QPointer<ImageView> canvas_;
@@ -135,6 +147,8 @@ private:
     QLabel* windowLabel_ = nullptr;
     QSpinBox* windowFrames_ = nullptr;
     QHash<QString, QAction*> ops_;
+    int shadowHalf_ = 0;
+    std::function<void(ImageView::ShpGrid&)> decorator_;
 };
 
 } // namespace pictura
