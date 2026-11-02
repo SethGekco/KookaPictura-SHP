@@ -611,3 +611,18 @@ Phase 2, authoring (recorded as each piece landed):
   Items 2 and 3 of the scope landed in one commit: they share the new
   dialogs file and the "new sheet with no source" document path.
 
+- **Onion skin** (Frames panel: "Onion skin" and its opacity, default 35%)
+  is drawn by `ImageView::paintShpOnion` over the composite, in the view
+  only: the frames before and after the current one are tinted (red
+  before, blue after), ghosted at the opacity, and cut out wherever the
+  current frame is opaque, so they read as behind it and its own pixels
+  show as they are. The document, the eyedropper's samples and the saved
+  bytes are untouched (tested). **At the edge of a paged window the
+  neighbour off the sheet is simply not shown** (decoding it from the
+  store on every paint would put frame-store reads in the paint path for a
+  ghost); frame 0 and the last frame do not wrap either. Cells over 1
+  megapixel are not ghosted, so a paint never copies megabytes.
+- The SHP Qt tests are split: `tst_shp` (documents, saving, limits, frame
+  operations, authoring) and `tst_shp_view` (onion skin, playback,
+  overlays, readouts, disabled commands), sharing the generated sprites in
+  `cpp/tests/shp_fixtures.h`, to stay under the 1,400-line test-file cap.

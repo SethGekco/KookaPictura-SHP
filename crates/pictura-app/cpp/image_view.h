@@ -466,7 +466,8 @@ public:
     void setGuides(const QList<GuideLine>& guides);
     void setGuidesVisible(bool on);
     // SHP fork (image_view_shp.cpp): the frame grid of an SHP sheet. A null
-    // cell size hides it; `active` outlines one frame's cell.
+    // cell size hides it; `active` outlines one frame's cell. `onion` ghosts
+    // the cells before and after `active` into it at `onionOpacity` percent.
     struct ShpGrid {
         QSize cell;
         int cols = 0;
@@ -474,6 +475,8 @@ public:
         int gutter = 0;
         int active = -1;
         bool visible = true;
+        bool onion = false;
+        int onionOpacity = 35;
     };
     void setShpGrid(const ShpGrid& grid);
     const ShpGrid& shpGrid() const { return shpGrid_; }
@@ -685,6 +688,7 @@ private:
     void paintAnnotations(QPainter& painter);
     void paintGuides(QPainter& painter);
     void paintShpGrid(QPainter& painter);
+    void paintShpOnion(QPainter& painter);
     void paintSmartGuides(QPainter& painter);
     QString formatGuideDistance(double documentPixels) const;
     QList<SmartGuideLine> smartGuideLines_;

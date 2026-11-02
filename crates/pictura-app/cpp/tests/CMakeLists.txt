@@ -5,6 +5,7 @@ set(PICTURA_QT_TESTS
     tst_offthread_jobs
     tst_open_save
     tst_shp
+    tst_shp_view
     tst_multi_file_open
     tst_document_api
     tst_document_session

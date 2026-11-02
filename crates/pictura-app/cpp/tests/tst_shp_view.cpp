@@ -1,0 +1,170 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// KookaPictura-SHP fork: the view side of SHP documents (onion skin,
+// playback, overlays, readouts, the commands an SHP sheet disables). Every
+// sprite and palette here is generated; no game file is used.
+
+#include <QtTest/QtTest>
+
+#include "frame.h"
+#include "image_view.h"
+#include "panels/shp_frames_panel.h"
+#include "shp_palettes.h"
+#include "shp_support.h"
+
+#include "pictura_app/src/cxxqt_object.cxxqt.h"
+#include "pictura_app/src/cxxqt_object/eyedropper_sample.cxxqt.h"
+#include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
+
+#include <QtCore/QTemporaryDir>
+#include <QtWidgets/QCheckBox>
+#include <QtWidgets/QSpinBox>
+
+#include "qt_test_support.h"
+#include "shp_fixtures.h"
+
+namespace {
+
+constexpr quint64 kPagedLimit = 600;
+
+// The colour the canvas widget shows for sheet pixel (x, y).
+QRgb shown(pictura::ImageView* canvas, int x, int y)
+{
+    const QPointF at = canvas->imageToWidget(QPointF(x + 0.5, y + 0.5));
+    return canvas->grab().toImage().pixel(at.toPoint());
+}
+
+} // namespace
+
+class ShpViewTest : public QObject {
+    Q_OBJECT
+
+private:
+    pictura::PictureView* open();
+
+    pictura::test::ScopedStateHome stateHome_;
+    QTemporaryDir dir_;
+    QString shp_;
+    std::unique_ptr<pictura::PicturaMainWindow> window_;
+    pictura::ShpSupport* support_ = nullptr;
+
+private slots:
+    void init();
+    void cleanup();
+    void onionGhostsNeighboursWithoutChangingSamplesOrBytes();
+    void onionStopsAtThePagedWindowEdge();
+};
+
+void ShpViewTest::init()
+{
+    QVERIFY(dir_.isValid());
+    shp_ = dir_.filePath(QStringLiteral("gtank.shp"));
+    QVERIFY(writeFile(shp_, sprite()));
+    QVERIFY(writeFile(dir_.filePath(QStringLiteral("gtank.pal")), palette()));
+    window_ = pictura::test::makeMainWindow();
+    window_->resize(1200, 900);
+    window_->show();
+    support_ = pictura::ShpSupport::of(window_.get());
+    QVERIFY(support_);
+}
+
+void ShpViewTest::cleanup()
+{
+    pictura::ShpSupport::setGateInteractive(-1);
+    pictura::shp_set_test_limits(0, 0);
+    window_.reset();
+    pictura::forgetFolderPalette(shp_);
+}
+
+pictura::PictureView* ShpViewTest::open()
+{
+    if (!window_->openDocumentAtPath(shp_)) {
+        return nullptr;
+    }
+    window_->refresh();
+    return window_->viewAt(0);
+}
+
+void ShpViewTest::onionGhostsNeighboursWithoutChangingSamplesOrBytes()
+{
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    frames->setSelectsCell(false);
+    // A blank frame between two full ones: every pixel of it is transparent.
+    QVERIFY(support_->frameOp(QStringLiteral("insert"), 5, 1));
+    QTRY_COMPARE(frames->frameCount(), kFrames + 1);
+    frames->focusFrame(5);
+    pictura::ImageView* canvas = window_->canvasAt(0);
+    QVERIFY(canvas);
+    const QRect cell = frames->cellRect(5);
+    const QPoint p = cell.topLeft() + QPoint(2, 2);
+    QTRY_COMPARE(canvas->shpGrid().active, 5);
+
+    const QRgb plain = shown(canvas, p.x(), p.y());
+    const quint32 layer = pictura::sample_argb_scoped(*view, p.x(), p.y(), 1, 0);
+    const quint32 all = pictura::sample_argb_scoped(*view, p.x(), p.y(), 3, 2);
+    const quint32 composite = view->composite_argb(p.x(), p.y());
+    QCOMPARE(layer >> 24, 0u);
+    const QString offPath = dir_.filePath(QStringLiteral("off.shp"));
+    QVERIFY(window_->saveActiveAs(offPath));
+
+    QCheckBox* onion = frames->onion();
+    QVERIFY(onion && onion->isEnabled());
+    onion->setChecked(true);
+    QVERIFY(canvas->shpGrid().onion);
+    frames->onionOpacity()->setValue(60);
+    QCOMPARE(canvas->shpGrid().onionOpacity, 60);
+    // The ghost shows on screen ...
+    QTRY_VERIFY(shown(canvas, p.x(), p.y()) != plain);
+    // ... and nowhere else: not in the samples, the composite or the file.
+    QCOMPARE(pictura::sample_argb_scoped(*view, p.x(), p.y(), 1, 0), layer);
+    QCOMPARE(pictura::sample_argb_scoped(*view, p.x(), p.y(), 3, 2), all);
+    QCOMPARE(view->composite_argb(p.x(), p.y()), composite);
+    const QString onPath = dir_.filePath(QStringLiteral("on.shp"));
+    QVERIFY(window_->saveActiveAs(onPath));
+    QCOMPARE(readFile(onPath), readFile(offPath));
+
+    // An opaque pixel of the current frame is never covered by the ghost.
+    frames->focusFrame(4);
+    const QPoint q = frames->cellRect(4).topLeft() + QPoint(2, 2);
+    onion->setChecked(false);
+    const QRgb solid = shown(canvas, q.x(), q.y());
+    onion->setChecked(true);
+    QCOMPARE(shown(canvas, q.x(), q.y()), solid);
+}
+
+void ShpViewTest::onionStopsAtThePagedWindowEdge()
+{
+    pictura::shp_set_test_limits(kPagedLimit, 0);
+    pictura::PictureView* view = open();
+    QVERIFY(view);
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), kFrames);
+    frames->setSelectsCell(false);
+    QCOMPARE(pictura::shp_info(*view).frames, 4);
+    // Two blank frames at 4 and 5; the window is 4-7, so frame 4's "before"
+    // (frame 3, full) is off the sheet and its "after" is blank.
+    QVERIFY(support_->frameOp(QStringLiteral("insert"), 4, 2));
+    QTRY_COMPARE(frames->frameCount(), kFrames + 2);
+    QCOMPARE(pictura::shp_info(*view).first, 4);
+    pictura::ImageView* canvas = window_->canvasAt(0);
+    frames->onion()->setChecked(true);
+
+    frames->focusFrame(4);
+    QTRY_COMPARE(canvas->shpGrid().active, 0);
+    const QPoint p4 = frames->cellRect(4).topLeft() + QPoint(2, 2);
+    const QRgb with4 = shown(canvas, p4.x(), p4.y());
+    frames->onion()->setChecked(false);
+    QCOMPARE(shown(canvas, p4.x(), p4.y()), with4);
+
+    // Frame 5's "after" (frame 6) is on the sheet: that one is ghosted.
+    frames->focusFrame(5);
+    const QPoint p5 = frames->cellRect(5).topLeft() + QPoint(2, 2);
+    const QRgb plain5 = shown(canvas, p5.x(), p5.y());
+    frames->onion()->setChecked(true);
+    QTRY_VERIFY(shown(canvas, p5.x(), p5.y()) != plain5);
+}
+
+QTEST_MAIN(ShpViewTest)
+#include "tst_shp_view.moc"

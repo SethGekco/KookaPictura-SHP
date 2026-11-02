@@ -30,9 +30,10 @@ effect art directly.
   and reverses frames; a moved frame keeps its stored bytes on save.
   File > New SHP starts a sprite from blank frames, and Save As SHP turns
   any image or sprite sheet into a new SHP document (frame size or grid,
-  palette, nearest-colour mapping).
+  palette, nearest-colour mapping). Onion skin ghosts the previous and next
+  frames behind the current one (view only).
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: onion skin, playback preview, shadow tools,
+  byte-identical. Next: playback preview, shadow tools,
   house-colour preview (see [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that

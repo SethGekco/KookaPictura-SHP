@@ -58,6 +58,10 @@ public:
     bool selectsCell() const;
     void setSelectsCell(bool on);
     bool gridVisible() const;
+    // Onion skin: ghost the frames before and after the current one into its
+    // cell (view-only; see ImageView::paintShpOnion).
+    QCheckBox* onion() const { return onion_; }
+    QSpinBox* onionOpacity() const { return onionOpacity_; }
 
     // "Frames loaded": shown for a paged SHP, holding its window size.
     QSpinBox* windowFrames() const { return windowFrames_; }
@@ -106,6 +110,8 @@ private:
     QToolButton* next_ = nullptr;
     QCheckBox* selectCell_ = nullptr;
     QCheckBox* grid_ = nullptr;
+    QCheckBox* onion_ = nullptr;
+    QSpinBox* onionOpacity_ = nullptr;
     QLabel* windowLabel_ = nullptr;
     QSpinBox* windowFrames_ = nullptr;
     QHash<QString, QAction*> ops_;

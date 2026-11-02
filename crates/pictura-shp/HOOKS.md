@@ -17,12 +17,12 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/src/cxxqt_object/impl_core.rs` | `revert`: the decode runs inside `shp::with_document_palette`, so a reverted SHP keeps its palette |
 | `crates/pictura-app/src/cxxqt_object/impl_core/save.rs` | `save`: an `shp` suffix goes to `shp::save_shp` before the native fallback |
 | `CMakeLists.txt` | the new shell sources (`shp_authoring`, `shp_palettes`, `shp_support`, `image_view_shp`, `panels/shp_{frames,palette}_panel`) |
-| `crates/pictura-app/cpp/tests/CMakeLists.txt` | `tst_shp` in the suite list |
+| `crates/pictura-app/cpp/tests/CMakeLists.txt` | `tst_shp` and `tst_shp_view` in the suite list |
 | `crates/pictura-app/cpp/frame_build.cpp` | `registerPanel(ShpSupport::install(this, colorState_)->dock(), Qt::BottomDockWidgetArea)` and its include |
 | `crates/pictura-app/cpp/frame_session.cpp` | `retargetDock` calls `ShpSupport::setView`, `refreshDock` calls `ShpSupport::refresh`; one include |
 | `crates/pictura-app/cpp/frame_open.cpp` | `startOpenImagePath`: when `shp_sniff_file(path)`, `ShpSupport::confirmOpen(view, path)` (the size limit, header only) before `beginOpenCursor`, deleting the view and returning 0 when it refuses, and `shp_set_open_palette(*view, resolveShpPalette(path))` before `open_image_start`; three includes |
 | `crates/pictura-app/cpp/keyboard_shortcuts_dialog.cpp` | `,` and `.` (frame stepping) added to `workspaceKeys()`, so the shortcut editor never hands them to a command |
-| `crates/pictura-app/cpp/image_view.h` | the `ShpGrid` struct, `setShpGrid`/`shpGrid`, `paintShpGrid` and the `shpGrid_` member |
+| `crates/pictura-app/cpp/image_view.h` | the `ShpGrid` struct (grid, active cell, onion skin), `setShpGrid`/`shpGrid`, `paintShpGrid`, `paintShpOnion` and the `shpGrid_` member |
 | `crates/pictura-app/cpp/image_view.cpp` | `paintEvent` calls `paintShpGrid(painter)` before the guides |
 | `crates/pictura-app/cpp/dialogs.{h,cpp}` | `shp` in `isKnownImageSuffix`; "Westwood SHP (TS/RA2) (*.SHP)" as save filter 8 (before All Formats) and in the open filters, `*.SHP` in both All Formats; `defaultSuffixForFilter(8)`; `defaultSaveFilterIndex` returns 8 for an SHP sheet; `savePathNeedsFormatDialog` sends an `.shp` path to Save As unless the document is an SHP sheet; two includes; doc comments |
 | `crates/pictura-app/cpp/frame.cpp` | `saveActiveAs`: an `.shp` path runs `ShpSupport::saveGate(view, true, path)` first (the path lets it convert an image that is not an SHP sheet into a new SHP document); one include |
@@ -42,7 +42,8 @@ the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP opens with),
 the File > New SHP menu entry, inserted after File > New at runtime),
 `cpp/shp_authoring.{h,cpp}` (the New SHP and Save As SHP dialogs),
 `cpp/panels/shp_{frames,palette}_panel.{h,cpp}`, `cpp/image_view_shp.cpp`
-(the frame grid) and `cpp/tests/tst_shp.cpp`.
+(the frame grid and onion skin) and `cpp/tests/{tst_shp,tst_shp_view}.cpp` with their
+shared generated sprites in `cpp/tests/shp_fixtures.h`.
 
 The generic save guard (any suffix without a writer is refused instead of
 receiving PSD bytes) is kept self-contained so upstream can take it alone:

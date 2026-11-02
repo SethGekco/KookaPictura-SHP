@@ -75,6 +75,21 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     auto* opsRow = new QHBoxLayout;
     buildOps(opsRow);
     layout->addLayout(opsRow);
+    auto* viewRow = new QHBoxLayout;
+    onion_ = new QCheckBox(tr("Onion skin"), this);
+    onion_->setObjectName(QStringLiteral("shpOnion"));
+    onion_->setToolTip(tr("Ghost the previous (red) and next (blue) frames behind the current "
+                          "one. View only: colors you pick and the saved file are unchanged."));
+    onionOpacity_ = new QSpinBox(this);
+    onionOpacity_->setObjectName(QStringLiteral("shpOnionOpacity"));
+    onionOpacity_->setRange(5, 100);
+    onionOpacity_->setValue(35);
+    onionOpacity_->setSuffix(QStringLiteral("%"));
+    onionOpacity_->setToolTip(tr("Onion skin opacity"));
+    viewRow->addWidget(onion_);
+    viewRow->addWidget(onionOpacity_);
+    viewRow->addStretch(1);
+    layout->addLayout(viewRow);
 
     list_ = new QListWidget(this);
     list_->setObjectName(QStringLiteral("shpFrameList"));
@@ -104,6 +119,8 @@ ShpFramesPanel::ShpFramesPanel(QWidget* parent)
     connect(prev_, &QToolButton::clicked, this, [this] { step(-1); });
     connect(next_, &QToolButton::clicked, this, [this] { step(1); });
     connect(grid_, &QCheckBox::toggled, this, [this] { syncGrid(); });
+    connect(onion_, &QCheckBox::toggled, this, [this] { syncGrid(); });
+    connect(onionOpacity_, &QSpinBox::valueChanged, this, [this] { syncGrid(); });
     connect(windowFrames_, &QSpinBox::valueChanged, this, [this](int count) {
         if (view_ && count != shp_info(*view_).span) {
             emit windowSizeRequested(count);
@@ -302,6 +319,8 @@ void ShpFramesPanel::refresh()
     }
     selectCell_->setEnabled(shp);
     grid_->setEnabled(shp);
+    onion_->setEnabled(shp);
+    onionOpacity_->setEnabled(shp);
     syncGrid();
 }
 
@@ -421,6 +440,8 @@ void ShpFramesPanel::syncGrid()
             grid.gutter = info.gutter;
             grid.active = onSheet(current_) ? current_ - info.first : -1;
             grid.visible = grid_->isChecked();
+            grid.onion = onion_->isChecked();
+            grid.onionOpacity = onionOpacity_->value();
         }
     }
     canvas_->setShpGrid(grid);
