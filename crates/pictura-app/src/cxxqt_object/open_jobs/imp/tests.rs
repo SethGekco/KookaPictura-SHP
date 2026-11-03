@@ -378,3 +378,17 @@ fn raster_import_policy_malformed_profile() {
     assert!(doc.document_icc.is_none());
     assert!(doc.source_icc.is_none());
 }
+
+#[test]
+fn a_panicking_open_worker_still_answers() {
+    let (doc, status, warnings) = super::run_guarded(|| panic!("wgpu error: Out of Memory"));
+    assert!(doc.is_none());
+    assert_eq!(
+        status,
+        "error:the open stopped unexpectedly (wgpu error: Out of Memory)"
+    );
+    assert!(warnings.is_empty());
+    let (doc, status, _) = super::run_guarded(|| (None, "none".to_string(), Vec::new()));
+    assert!(doc.is_none());
+    assert_eq!(status, "none");
+}

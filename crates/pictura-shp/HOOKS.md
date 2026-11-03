@@ -62,3 +62,21 @@ receiving PSD bytes) is kept self-contained so upstream can take it alone:
 | `crates/pictura-app/cpp/frame_menus.cpp` | `saveAsWithDialog()` warns and stops on an unwritable suffix |
 | `crates/pictura-app/cpp/control_server_documents.cpp` | `save`/`save_as` answer `invalid_param` for an unwritable suffix |
 | `crates/pictura-app/cpp/tests/tst_open_save.cpp` | `unknownSuffixNeverGetsPsdBytes` |
+
+The GPU failure fix (a run-time GPU error, out of video memory for one, turns
+the GPU off for the session and the work falls back to the CPU instead of
+panicking in a worker thread; a dead open worker still answers the GUI) is
+generic too and kept self-contained the same way. It touches no SHP code:
+
+| Upstream file | Hook |
+|---|---|
+| `crates/pictura-render/src/gpu/failure.rs` (new) | the failed flag and its one-shot notice (`take_gpu_failure_notice`), the uncaptured-error handler, `guard` (a device error or a panic during a GPU job answers `GpuError::Unavailable`), the `inject_gpu_failure` test hook |
+| `crates/pictura-render/src/gpu/backend.rs` | `request_device` installs `on_uncaptured_error(failure::uncaptured)` (wgpu's default handler panics) and the device-lost callback calls `failure::disable`; `device_lost()` reads `failure::failed()` (the old `LOST` static is gone) |
+| `crates/pictura-render/src/gpu/mod.rs` | `mod failure;`, its two `pub use`s; `composite_gpu_region_raw` runs inside `failure::guard` |
+| `crates/pictura-render/src/lib.rs` | `inject_gpu_failure`, `take_gpu_failure_notice` in the `gpu` re-export list |
+| `crates/pictura-render/tests/gpu_failure.rs` (new) | `an_injected_device_error_falls_back_to_the_cpu_for_the_session` |
+| `crates/pictura-app/src/cxxqt_object/open_jobs/imp.rs` | `run_guarded` (a panicking job answers `error:...`); `start` and `open_pdf_start` run their job inside it; test `a_panicking_open_worker_still_answers` in `open_jobs/imp/tests.rs` |
+| `crates/pictura-app/src/gpu_probe_bridge.rs`, `gpu_probe_bridge/imp.rs` | `gpu_take_failure_notice`, `gpu_inject_failure` |
+| `crates/pictura-app/cpp/gpu_probe.{h,cpp}` | `takeGpuFailureNotice()` |
+| `crates/pictura-app/cpp/frame.cpp` | `updateStatus` shows a pending notice in the status bar (the backend label then reads "CPU (safe mode)") |
+| `crates/pictura-app/cpp/tests/CMakeLists.txt`, `tests/tst_gpu_fallback.cpp` (new) | `tst_gpu_fallback` in the suite list (`injectedFailureOpensOnTheCpu`) |

@@ -819,10 +819,30 @@ Phase 3, unit tools (recorded as each piece landed):
   first, on the GPU, hung on a 1,216-frame paged sprite when wgpu panicked
   with "Out of Memory" in a worker thread while another program held 5.5
   of the card's 8 GB (the app stopped answering instead of failing; not an
-  SHP code path, left as found). Real unit sprite (`vsant.shp`, 224 frames,
+  SHP code path; fixed below). Real unit sprite (`vsant.shp`, 224 frames,
   shadows 112-223, on a copy): Clear All then Generate All, clicked in the
   Unit panel, each saved; Ochre's reader and pictura-shp
   (`a_real_sprite_regenerated_changes_only_its_shadow_frames`, ignored)
   agree that the art frames keep header fields and payload bytes, every
   shadow frame holds only 0 and 1, the cleared save's shadow frames are
   empty and the regenerated ones are exactly their art's silhouette.
+- **GPU failures fall back to the CPU** (2026-11-02; generic, its own table
+  in `HOOKS.md`). Root cause of the Phase 3 hang: wgpu's default handler for
+  a device error raised outside an error scope panics in the calling thread.
+  The open worker's `create_buffer` ran out of video memory, the worker
+  thread died before it queued its result, and nothing else watched it, so
+  the tab stayed loading and the control-server open waited forever. Now the
+  render device has an uncaptured-error handler and the device-lost callback
+  that both turn the GPU off for the session (`gpu/failure.rs`); every GPU
+  composite runs in `failure::guard`, which also catches a panic and answers
+  `GpuError::Unavailable`, so the caller composites on the CPU. The GPU stays
+  off for the session (the memory pressure is usually another program's and
+  a failed device may hold invalid objects); the status bar says so once and
+  the backend label reads "CPU (safe mode)". Independently, an open worker's
+  job runs under `catch_unwind` (`open_jobs::run_guarded`), so a panic for
+  any reason answers `error:` and the open fails instead of hanging. Tested
+  with an injected device error (`inject_gpu_failure`: a buffer with no
+  usage, a real wgpu validation error that allocates nothing, delivered
+  through the same handler as an out-of-memory error): `gpu_failure.rs` in
+  pictura-render and `tst_gpu_fallback` (the open finishes on the CPU, the
+  notice shows, later opens stay on the CPU).

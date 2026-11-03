@@ -593,6 +593,28 @@ pub(super) fn error_status(error: &RasterError) -> String {
     format!("error:{error}")
 }
 
+/// What a worker's job answers: the document, the status, the warnings.
+pub(super) type JobOutcome = (Option<OpenedDocument>, String, Vec<String>);
+
+/// Run a worker's job so that a panic still answers the GUI: nothing else
+/// reports a dead worker, so its tab would stay loading and a control-server
+/// open would wait forever.
+pub(super) fn run_guarded(job: impl FnOnce() -> JobOutcome) -> JobOutcome {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        let first = message.lines().next().unwrap_or_default();
+        (
+            None,
+            format!("error:the open stopped unexpectedly ({first})"),
+            Vec::new(),
+        )
+    })
+}
+
 pub(super) fn start(
     view: &mut Pin<&mut PictureView>,
     work: impl FnOnce(&dyn Fn(u8, &str)) -> (Option<OpenedDocument>, String, Vec<String>)
@@ -614,7 +636,7 @@ pub(super) fn start(
             .ok();
     };
     std::thread::spawn(move || {
-        let (result, status, warnings) = work(&progress);
+        let (result, status, warnings) = run_guarded(|| work(&progress));
         delay(delay_ms);
         finish_on_gui(qt_thread, request, result, status, warnings);
     });
@@ -704,46 +726,34 @@ pub fn open_pdf_start(mut view: Pin<&mut PictureView>, path: &QString, password:
             .ok();
     };
     std::thread::spawn(move || {
-        progress(5, "Reading file");
-        let bytes = std::fs::read(&path).unwrap_or_default();
-        progress(15, "Checking PDF");
-        match pictura_codec::pdf::editing_psd(&bytes, &password) {
-            pictura_codec::pdf::EditingPsd::Psd(psd) => {
-                detected
-                    .queue(|view| {
-                        if !view.rust().open_cancelled {
-                            view.open_detected();
-                        }
-                    })
-                    .ok();
-                let opened = decode_pdf_psd(&psd, &path, &password, options, gpu, &progress);
-                let status = if opened.is_some() {
-                    "ok".to_string()
-                } else {
-                    "none".to_string()
-                };
-                delay(delay_ms);
-                finish_on_gui(qt_thread, request, opened, status, Vec::new());
+        let (opened, status, warnings) = run_guarded(|| {
+            progress(5, "Reading file");
+            let bytes = std::fs::read(&path).unwrap_or_default();
+            progress(15, "Checking PDF");
+            match pictura_codec::pdf::editing_psd(&bytes, &password) {
+                pictura_codec::pdf::EditingPsd::Psd(psd) => {
+                    detected
+                        .queue(|view| {
+                            if !view.rust().open_cancelled {
+                                view.open_detected();
+                            }
+                        })
+                        .ok();
+                    let opened = decode_pdf_psd(&psd, &path, &password, options, gpu, &progress);
+                    let status = if opened.is_some() { "ok" } else { "none" };
+                    (opened, status.to_string(), Vec::new())
+                }
+                pictura_codec::pdf::EditingPsd::Absent => (None, "none".to_string(), Vec::new()),
+                pictura_codec::pdf::EditingPsd::Locked if password.is_empty() => {
+                    (None, "password".to_string(), Vec::new())
+                }
+                pictura_codec::pdf::EditingPsd::Locked => {
+                    (None, "wrongpassword".to_string(), Vec::new())
+                }
             }
-            pictura_codec::pdf::EditingPsd::Absent => {
-                delay(delay_ms);
-                finish_on_gui(qt_thread, request, None, "none".to_string(), Vec::new());
-            }
-            pictura_codec::pdf::EditingPsd::Locked if password.is_empty() => {
-                delay(delay_ms);
-                finish_on_gui(qt_thread, request, None, "password".to_string(), Vec::new());
-            }
-            pictura_codec::pdf::EditingPsd::Locked => {
-                delay(delay_ms);
-                finish_on_gui(
-                    qt_thread,
-                    request,
-                    None,
-                    "wrongpassword".to_string(),
-                    Vec::new(),
-                );
-            }
-        }
+        });
+        delay(delay_ms);
+        finish_on_gui(qt_thread, request, opened, status, warnings);
     });
 }
 

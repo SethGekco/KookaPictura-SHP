@@ -313,9 +313,10 @@ async fn request_device() -> Option<Devices> {
             return None;
         }
     };
+    // wgpu's default handler panics in the calling thread (`failure.rs`).
+    device.on_uncaptured_error(std::sync::Arc::new(super::failure::uncaptured));
     device.set_device_lost_callback(|reason, message| {
-        LOST.store(true, std::sync::atomic::Ordering::Relaxed);
-        eprintln!("pictura: GPU device lost ({reason:?}: {message}); using the CPU from now on");
+        super::failure::disable(&format!("device lost, {reason:?}: {message}"));
     });
     Some(Devices {
         _instance: instance,
@@ -341,12 +342,11 @@ pub(super) fn accelerates(device_type: wgpu::DeviceType) -> bool {
 }
 
 /// Set once the driver reports the shared device lost (a reset after a hung
-/// job, for one). A lost device never comes back, so every later caller sees
+/// job, for one) or the device reports an error (out of memory, for one). A
+/// failed device never comes back, so every later caller sees
 /// [`GpuError::Unavailable`] and takes the CPU path.
-static LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 pub(crate) fn device_lost() -> bool {
-    LOST.load(std::sync::atomic::Ordering::Relaxed)
+    super::failure::failed()
 }
 
 pub(super) fn devices() -> Result<&'static Devices, GpuError> {

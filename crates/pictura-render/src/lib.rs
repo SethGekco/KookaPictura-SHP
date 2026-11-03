@@ -129,10 +129,10 @@ pub const SOFTWARE_GPU: bool = cfg!(feature = "software-gpu");
 pub use gpu::{
     backend_label, compiled_backends, composite_active, composite_gpu, composite_gpu_or_cpu,
     composite_region_active, device_available, dx12_compiler, dx12_compiler_label, env_candidates,
-    gpu_adapter_info, gpu_available, gpu_backend_status, platform, probe_backend,
-    probe_backend_outcome, resolve_candidates, selected_backend, set_backend, set_safe_mode,
-    Backend, GpuAdapterInfo, GpuBackend, GpuBackendStatus, GpuError, Platform, ProbeOutcome,
-    ProbeReport,
+    gpu_adapter_info, gpu_available, gpu_backend_status, inject_gpu_failure, platform,
+    probe_backend, probe_backend_outcome, resolve_candidates, selected_backend, set_backend,
+    set_safe_mode, take_gpu_failure_notice, Backend, GpuAdapterInfo, GpuBackend, GpuBackendStatus,
+    GpuError, Platform, ProbeOutcome, ProbeReport,
 };
 
 mod filter;

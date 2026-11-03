@@ -2,6 +2,7 @@
 set(PICTURA_QT_TESTS
     tst_smoke
     tst_gpu_backend
+    tst_gpu_fallback
     tst_offthread_jobs
     tst_open_save
     tst_shp

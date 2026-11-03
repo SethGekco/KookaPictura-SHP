@@ -118,6 +118,14 @@ pub(super) fn gpu_active_backend_label(gpu_compute: bool) -> String {
     pictura_render::backend_label(gpu_compute, pictura_render::gpu_backend_status())
 }
 
+pub(super) fn gpu_take_failure_notice() -> String {
+    pictura_render::take_gpu_failure_notice().unwrap_or_default()
+}
+
+pub(super) fn gpu_inject_failure() {
+    pictura_render::inject_gpu_failure();
+}
+
 /// Whether the child exited on its own or had to be killed after the timeout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WaitOutcome {

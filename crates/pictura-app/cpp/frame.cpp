@@ -1063,6 +1063,13 @@ void PicturaMainWindow::updateStatus()
         }
         sizeLabel_->setText(text);
     }
+    // A GPU failure at run time turned the GPU off for this session (the
+    // label below then reads safe mode); say so once.
+    const QString gpuNotice = takeGpuFailureNotice();
+    if (!gpuNotice.isEmpty()) {
+        gpuAvailable_ = false;
+        statusBar()->showMessage(gpuNotice);
+    }
     if (backendLabel_) {
         backendLabel_->setVisible(hasDoc);
         PictureView* view = activeView();

@@ -59,6 +59,7 @@ mod assemble;
 mod backend;
 mod clip;
 mod effect;
+mod failure;
 mod lut;
 mod plan;
 mod raster;
@@ -67,6 +68,7 @@ mod select;
 mod shader;
 mod stroke;
 
+pub use failure::{inject_gpu_failure, take_gpu_failure_notice};
 pub use select::{
     backend_label, compiled_backends, dx12_compiler, dx12_compiler_label, env_candidates,
     gpu_backend_status, platform, probe_backend, probe_backend_outcome, resolve_candidates,
@@ -210,7 +212,9 @@ fn composite_gpu_region(
 /// The ungated region kernel. Callers own the plan: [`composite_gpu_region`]
 /// builds it before the availability gate, and [`gpu_composite_verified`]
 /// checks its static validation scene. Splitting it out lets the validation
-/// bypass [`gpu_available`] without recursing.
+/// bypass [`gpu_available`] without recursing. A device error or a panic while
+/// it runs turns the GPU off and answers [`GpuError::Unavailable`]
+/// (`failure.rs`).
 fn composite_gpu_region_raw(
     doc: &Document,
     plans: &[plan::LayerPlan<'_>],
@@ -222,13 +226,14 @@ fn composite_gpu_region_raw(
     if rw == 0 || rh == 0 {
         return Ok(PixelBuffer::new(rw, rh, 4));
     }
-    let gpu = Gpu::new(x0, y0, rw, rh)?;
-    let canvas = gpu.zero_canvas();
-    for layer_plan in plans {
-        gpu.composite_plan(&canvas, layer_plan, doc);
-    }
-    let pixels = gpu.read_canvas(&canvas)?;
-    Ok(pixels)
+    failure::guard(|| {
+        let gpu = Gpu::new(x0, y0, rw, rh)?;
+        let canvas = gpu.zero_canvas();
+        for layer_plan in plans {
+            gpu.composite_plan(&canvas, layer_plan, doc);
+        }
+        gpu.read_canvas(&canvas)
+    })
 }
 
 /// Composite only `rect` (clamped to the document) through the active backend.

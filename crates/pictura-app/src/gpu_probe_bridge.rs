@@ -36,5 +36,11 @@ pub mod ffi {
         fn gpu_candidates() -> Vec<i32>;
         /// The five-state status label for the status bar and About.
         fn gpu_active_backend_label(gpu_compute: bool) -> String;
+        /// The message about a GPU failure at run time (out of video memory,
+        /// a lost device) that turned the GPU off for this session; empty
+        /// when none is pending. Taken once.
+        fn gpu_take_failure_notice() -> String;
+        /// Test hook: the next GPU composite raises a device error.
+        fn gpu_inject_failure();
     }
 }

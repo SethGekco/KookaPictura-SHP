@@ -439,6 +439,12 @@ QString aboutText(const QString& backendLabel)
     return QStringLiteral("Renderer: %1").arg(backendLabel);
 }
 
+QString takeGpuFailureNotice()
+{
+    const rust::String notice = pictura::gpu_take_failure_notice();
+    return QString::fromUtf8(notice.data(), int(notice.size()));
+}
+
 int runGpuProbeChild(const char* backend)
 {
     const QString name = QString::fromLatin1(backend ? backend : "");

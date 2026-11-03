@@ -83,6 +83,10 @@ QStringList gpuCandidateNames();
 QString activeBackendLabel(bool gpuCompute);
 QString aboutText(const QString& backendLabel);
 
+// The message about a GPU failure at run time (out of video memory, a lost
+// device) that turned the GPU off for this session, or empty. Taken once.
+QString takeGpuFailureNotice();
+
 // Child mode: `--gpu-probe <dx12|vulkan>`. Suppresses the Windows dialog and
 // calls the Rust probe. Returns 0 on success, 1 when no adapter exists, 2 when
 // a device exists but fails validation.
