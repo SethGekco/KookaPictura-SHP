@@ -812,3 +812,17 @@ Phase 3, unit tools (recorded as each piece landed):
   chance). The house-color preview takes the kind's ramp and is off for
   kinds without one. The kind is view state: the document and saved bytes
   do not change (tested).
+- **Phase 3 verification** (2026-11-02, the release app through the control
+  server): the self-test passes (471 of 471); the corpus regression opens
+  and saves the 300 sampled files and the 21 paged ones unchanged, 321 of
+  321 byte-identical (VmHWM 3.8 GB). That run used `WGPU_BACKEND=cpu`: the
+  first, on the GPU, hung on a 1,216-frame paged sprite when wgpu panicked
+  with "Out of Memory" in a worker thread while another program held 5.5
+  of the card's 8 GB (the app stopped answering instead of failing; not an
+  SHP code path, left as found). Real unit sprite (`vsant.shp`, 224 frames,
+  shadows 112-223, on a copy): Clear All then Generate All, clicked in the
+  Unit panel, each saved; Ochre's reader and pictura-shp
+  (`a_real_sprite_regenerated_changes_only_its_shadow_frames`, ignored)
+  agree that the art frames keep header fields and payload bytes, every
+  shadow frame holds only 0 and 1, the cleared save's shadow frames are
+  empty and the regenerated ones are exactly their art's silhouette.

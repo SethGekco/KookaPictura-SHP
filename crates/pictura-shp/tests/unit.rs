@@ -313,3 +313,58 @@ fn census_of_the_shadow_split() {
          shadowed_with_index1={drawn}"
     );
 }
+
+/// The end-to-end check on a real unit sprite (ignored by default): with
+/// `PICTURA_SHP_E2E_ORIGINAL` and `PICTURA_SHP_E2E_EDITED` set to a sprite
+/// and the app's save after Clear All then Generate All (straight shadows),
+/// the art frames keep their headers and pixels and every shadow frame is
+/// exactly its art frame's silhouette in index 1 (or empty, for the save
+/// after Clear All with `PICTURA_SHP_E2E_EXPECT=cleared`).
+#[test]
+#[ignore = "needs a real sprite and the app's edit of it"]
+fn a_real_sprite_regenerated_changes_only_its_shadow_frames() {
+    let (Ok(original), Ok(edited)) = (
+        std::env::var("PICTURA_SHP_E2E_ORIGINAL"),
+        std::env::var("PICTURA_SHP_E2E_EDITED"),
+    ) else {
+        eprintln!("PICTURA_SHP_E2E_ORIGINAL / _EDITED are not set");
+        return;
+    };
+    let a = std::fs::read(original).expect("original");
+    let b = std::fs::read(edited).expect("edited");
+    let (sa, sb) = (
+        pictura_shp::parse(&a).expect("parses"),
+        pictura_shp::parse(&b).expect("parses"),
+    );
+    assert_eq!((sa.width, sa.height), (sb.width, sb.height));
+    let count = sa.frames.len();
+    assert_eq!(sb.frames.len(), count);
+    let uses: Vec<Use> = (0..count).map(|i| file_frame_use(&a, i)).collect();
+    let half = split(&uses).expect("the original has a shadow half");
+    let (w, h) = (usize::from(sa.width), usize::from(sa.height));
+    // PICTURA_SHP_E2E_EXPECT=cleared: the save after Clear All only.
+    let cleared = std::env::var("PICTURA_SHP_E2E_EXPECT").is_ok_and(|v| v == "cleared");
+    let mut changed = 0;
+    for i in 0..count {
+        let (ha, hb) = (FrameHeader::read(&a, i), FrameHeader::read(&b, i));
+        let (ca, cb) = (sa.canvas(i), sb.canvas(i));
+        if i < half {
+            assert_eq!(ca, cb, "art frame {i} pixels");
+            assert_eq!(
+                (ha.x, ha.y, ha.w, ha.h, ha.flags, ha.radar, ha.reserved),
+                (hb.x, hb.y, hb.w, hb.h, hb.flags, hb.radar, hb.reserved),
+                "art frame {i} header"
+            );
+        } else {
+            assert!(cb.iter().all(|&v| v <= SHADOW), "shadow frame {i} is 0/1");
+            let want = if cleared {
+                vec![0; w * h]
+            } else {
+                silhouette(&sa.canvas(i - half), w, h, ShadowParams::STRAIGHT)
+            };
+            assert_eq!(cb, want, "shadow frame {i} (cleared: {cleared})");
+            changed += usize::from(ca != cb);
+        }
+    }
+    println!("e2e frames={count} half={half} shadow_frames_changed={changed}");
+}
