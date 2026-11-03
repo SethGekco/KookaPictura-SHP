@@ -1097,3 +1097,51 @@ Self-test count after the MIX commits (2026-11-02):
   self-contained fix like the save guard. Now a CPU run is 470 passed, 1
   skipped (`pp_gpu_commit`, which needs an adapter by design) and a GPU run
   471 of 471; report the backend with the count.
+
+TMP authoring (recorded as each piece landed; the OpenSpec change is
+`openspec/changes/archive/2026-11-02-westwood-tmp-authoring`):
+
+- **Where a cell's tile sits, measured.** In all 9,744 tiles of the 2,745
+  real templates, the tile of cell `(col, row)` (slot `row * blocks_x +
+  col`) has `x = (col - row) * cx / 2`. Vertically, 2,336 files hold `y =
+  (col + row) * cy / 2 - (height - h0) * cy / 2` with one `h0` per file
+  (the lowest height: 0 in 2,202 files, 4 in 134); the other 409 (cliffs,
+  ramps) do not follow height at all. A new template's tiles share one
+  height, so they sit at `((col - row) * cx / 2, (col + row) * cy / 2)`.
+  The tile sizes stay the codec's: 48x24 for Tiberian Sun, 60x30 for Red
+  Alert 2 / Yuri's Revenge (every corpus file is 60x30; no TS template was
+  available, so 48x24 is covered by generated files only).
+- **Flat z-data, measured.** 8,156 of the 8,800 flat (ramp 0) tiles with
+  z-data hold `cy - 1 - y` in diamond row `y` (29 down to 1); the other 644
+  cap the top half at 15. "Flat ground" z-data is the first.
+- **New TMP from Image** (File > New TMP from Image, after New SHP; Save
+  As TMP of a document that is not a template, and of an SHP sheet under
+  `.tmp`: an SHP sheet under a theater suffix still saves as a theater
+  SHP). The image lies over the template grid, its top-left on the grid's
+  bounding-box top-left. The dialog asks for the game, the grid in cells
+  (guessed from the image width), the cells (by default every cell whose
+  diamond covers a pixel with alpha above 0; a checkable table), height,
+  land and ramp of every tile (0, 0, 0: flat clear ground), theater (fixed
+  by a Save As suffix) and palette (`iso<theater>.pal` as a template of
+  that theater resolves), nearest or exact colors (as Save As SHP), z-data
+  (none, the default, or flat ground) and whether pixels outside the
+  diamonds become extra blocks (off by default). Each such pixel goes to
+  the tile whose diamond centre is nearest in the isometric metric (dy
+  counted twice), ties to the lower slot; a tile's block is the bounding
+  box of its pixels, with no z-data. Unchecked, those pixels stay on the
+  Tiles layer and Save's Clip removes them; pixels that land off the
+  template's canvas are counted in the status message and left out. Each
+  tile's radar colors (low and high) are the mean of its diamond's colors.
+  The template is written with the fresh layout and opened from those
+  bytes, so the new document is exactly a template read from a file (an
+  unchanged save writes the same bytes). Like Save As SHP of an image, it
+  needs dialogs: headless (offscreen, the control server) it is refused
+  with the reason. The size check is `Limits::admit` with the view's
+  allowance.
+- **Checked** (2026-11-02): six templates made from generated images
+  through the app glue (RA2 and TS tiles, 1x1 to 4x4 grids, extras on and
+  off, flat and no z, exact and nearest colors, snapped and clipped as Save
+  does; the ignored test `e2e_writes_templates_made_from_images`) read
+  identically in pictura-shp and Ochre's `cnctmp.py`: every header, field,
+  flag, extra rectangle and the FNV-1a of every image, z, extra and extra-z
+  block (`~/Claude/shp-corpus/tmpedit/tmpedit-e2e.py new`, 6 of 6).

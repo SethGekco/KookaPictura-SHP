@@ -646,3 +646,11 @@ pub(in crate::cxxqt_object) fn tmp_set_tile_fields(
         }
     }
 }
+
+#[path = "tmp_image.rs"]
+mod tmp_image;
+pub(in crate::cxxqt_object) use tmp_image::{tmp_from_image, tmp_image_cells};
+
+#[cfg(test)]
+#[path = "tmp_image_tests.rs"]
+mod tmp_image_tests;

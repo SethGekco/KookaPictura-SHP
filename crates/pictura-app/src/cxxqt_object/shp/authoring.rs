@@ -179,7 +179,7 @@ pub(in crate::cxxqt_object::shp) fn shp_plan_sheet(
 
 /// Put a made document in `view` (`unsaved`: it holds work not yet in a
 /// file).
-fn install(
+pub(super) fn install(
     mut view: Pin<&mut PictureView>,
     made: Result<OpenedDocument, String>,
     unsaved: bool,

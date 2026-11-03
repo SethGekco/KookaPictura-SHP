@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// KookaPictura-SHP fork: the save gate of a TMP terrain template.
+// KookaPictura-SHP fork: the save gate of a TMP terrain template, and new
+// templates made from images.
 
 #include "shp_support.h"
 
+#include "frame.h"
 #include "panels/tmp_tiles_panel.h"
+#include "shp_palettes.h"
+#include "tmp_authoring.h"
 
+#include <QtCore/QDir>
 #include <QtCore/QFileInfo>
+#include <QtGui/QAction>
 #include <QtWidgets/QDockWidget>
 #include <QtWidgets/QMainWindow>
+#include <QtWidgets/QMenu>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
 
@@ -147,6 +154,126 @@ bool ShpSupport::tmpGate(PictureView* view, bool dialogs, const QString& path)
         }
     }
     return true;
+}
+
+void ShpSupport::installTmpMenus(QMenu* menu)
+{
+    newTmpAction_ = new QAction(tr("New TMP from Image…"), this);
+    newTmpAction_->setObjectName(QStringLiteral("tmpNewFromImageAction"));
+    newTmpAction_->setToolTip(tr("Make a TMP terrain template of the active image"));
+    connect(newTmpAction_, &QAction::triggered, this, [this] {
+        auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+        PictureView* source = window ? window->activeView() : nullptr;
+        if (!source) {
+            message(tr("Open the image to make a TMP template of first."));
+            return;
+        }
+        tmpFromImageWithDialog(source, QString(), true);
+    });
+    const QList<QAction*> actions = menu->actions();
+    const qsizetype at = actions.indexOf(newShpAction_);
+    menu->insertAction(actions.value(at + 1), newTmpAction_);
+}
+
+bool ShpSupport::newTmpFromImage(PictureView* source, const QList<int>& params,
+                                 const QList<int>& cells, const QString& palette,
+                                 const QString& name)
+{
+    gateMessage_.clear();
+    auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+    if (!window || !source) {
+        gateMessage_ = tr("no image");
+        return false;
+    }
+    auto* view = new PictureView(window);
+    const std::vector<int32_t> p(params.begin(), params.end());
+    const std::vector<int32_t> c(cells.begin(), cells.end());
+    const ::rust::Vec<int32_t> made =
+        tmp_from_image(*view, *source, name, ::rust::Slice<const int32_t>(p.data(), p.size()),
+                       ::rust::Slice<const int32_t>(c.data(), c.size()), palette,
+                       allowanceOf(view));
+    if (made.size() != 5) {
+        delete view;
+        gateMessage_ = shp_last_error();
+        message(gateMessage_);
+        return false;
+    }
+    window->addDocument(view, QString());
+    QString text = tr("New TMP template: %n tile(s), %1 x %2 px.", nullptr, made[0])
+                       .arg(made[3])
+                       .arg(made[4]);
+    if (made[1] > 0) {
+        text += tr(" %n pixel(s) lie outside the tiles; Save offers to clip them.", nullptr,
+                   made[1]);
+    }
+    if (made[2] > 0) {
+        text += tr(" %n pixel(s) fell off the template's canvas and were left out.", nullptr,
+                   made[2]);
+    }
+    gateMessage_ = text;
+    message(text);
+    return true;
+}
+
+bool ShpSupport::tmpFromImageWithDialog(PictureView* source, const QString& path, bool dialogs)
+{
+    gateMessage_.clear();
+    savedCopy_ = false;
+    auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+    if (!window || !source || !dialogs || !asksNow()) {
+        gateMessage_ = tr("This image is not a TMP template. Saving it as TMP makes a new "
+                          "template with an options dialog (grid, tiles, palette), which needs "
+                          "an interactive session.");
+        message(gateMessage_);
+        return false;
+    }
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    const QString theater = theaterSuffixes().contains(suffix) ? suffix : QString();
+    QString sourcePath;
+    for (int i = 0; i < window->documentCount(); ++i) {
+        if (window->viewAt(i) == source) {
+            sourcePath = window->documentPath(i);
+        }
+    }
+    const QFileInfo base(path.isEmpty() ? sourcePath : path);
+    const QString stem = base.completeBaseName().isEmpty() ? QStringLiteral("untitled")
+                                                           : base.completeBaseName();
+    const QDir dir = base.filePath().isEmpty() ? QDir::current() : base.absoluteDir();
+    TmpFromImageDialog dialog(
+        source->document_width(), source->document_height(),
+        [source](int cx, int cy, int bx, int by) {
+            QList<bool> out;
+            for (const bool on : tmp_image_cells(*source, cx, cy, bx, by)) {
+                out << on;
+            }
+            return out;
+        },
+        [dir, stem](const QString& theaterSuffix) {
+            return resolveTmpPalette(dir.filePath(stem + QLatin1Char('.') + theaterSuffix));
+        },
+        theater, frame_);
+    if (dialog.exec() != QDialog::Accepted) {
+        gateMessage_ = tr("New TMP from Image was cancelled.");
+        return false;
+    }
+    if (!newTmpFromImage(source, dialog.params(), dialog.cells(), dialog.palette(),
+                         path.isEmpty() ? stem : QFileInfo(path).fileName())) {
+        QMessageBox::warning(frame_, tr("New TMP from Image"), gateMessage_);
+        return false;
+    }
+    if (path.isEmpty()) {
+        return true;
+    }
+    // The new template is active now: the normal save, its gate included.
+    const QString made = gateMessage_;
+    savedCopy_ = window->saveActiveAs(path);
+    if (savedCopy_) {
+        gateMessage_ = tr("Saved %1 from a new TMP template document; the original image is "
+                          "unchanged. %2")
+                           .arg(QFileInfo(path).fileName(), made);
+        message(gateMessage_);
+    }
+    return false;
 }
 
 } // namespace pictura

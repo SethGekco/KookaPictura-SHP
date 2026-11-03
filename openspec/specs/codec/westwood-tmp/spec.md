@@ -104,7 +104,7 @@ when no dialog can be shown.
 
 #### Scenario: Wrong layers or targets are refused [tmp_save_refused]
 
-- **WHEN** a layer is renamed, a template is saved as `.shp`, or an SHP sheet as `.tmp`
+- **WHEN** a layer is renamed, a template is saved as `.shp`, or an SHP sheet as `.tmp` where no dialog can be shown
 - **THEN** the save is refused with the reason, and an SHP sheet still saves under its theater suffix byte-identical
 
 ### Requirement: Editing TMP tile fields
@@ -123,3 +123,34 @@ a value that is not 0-255 or not two colors.
 
 - **WHEN** a height of 300 or a radar color "red" is typed
 - **THEN** nothing is recorded and the row shows the old value
+
+### Requirement: TMP templates from images
+
+The system SHALL make a new TMP terrain template from any image: the image
+laid over a template grid of the chosen game's tile size (48x24 or 60x30),
+a tile in each chosen cell at the position real templates use, every tile
+with the chosen height, land and ramp type, the image's colours mapped to
+the chosen palette (nearest, or exact with the rest left for the save
+gate), no z-data or flat-ground z-data, and pixels outside the diamonds
+made extra blocks only when asked. Saving an image as a TMP SHALL ask for
+these options and save the new template, leaving the image unchanged.
+
+#### Scenario: An image becomes tiles [tmp_image_codec]
+
+- **WHEN** an image is laid over a grid with some cells chosen
+- **THEN** each chosen cell holds a tile with the image's pixels inside its diamond, and the built file reads back as made
+
+#### Scenario: A template document from an image [tmp_image_document]
+
+- **WHEN** File > New TMP from Image runs on an image
+- **THEN** a new template document opens whose unchanged save writes the template as built, with off-palette and stray pixels left for the save gate
+
+#### Scenario: The options dialog and Save As TMP [tmp_image_shell]
+
+- **WHEN** an image is saved as `.tem`, or File > New TMP from Image is chosen
+- **THEN** the options dialog shows the cells with pixels checked, the new template is saved or opened, and without dialogs the save is refused with the reason
+
+#### Scenario: Another reader agrees [tmp_image_ochre]
+
+- **WHEN** templates made from images are read by an independent reader
+- **THEN** every header, field and block reads as this codec reads it

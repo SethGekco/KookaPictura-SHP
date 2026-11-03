@@ -13,7 +13,9 @@
 #include "panels/shp_palette_panel.h"
 #include "panels/tmp_tiles_panel.h"
 #include "shp_palettes.h"
+#include "shp_authoring.h"
 #include "shp_support.h"
+#include "tmp_authoring.h"
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
@@ -22,6 +24,11 @@
 #include <QtCore/QTimer>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QComboBox>
+#include <QtWidgets/QDialogButtonBox>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QMenuBar>
+#include <QtWidgets/QSpinBox>
 #include <QtWidgets/QDockWidget>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
@@ -150,6 +157,11 @@ private slots:
     void aTheaterSuffixedShpSavesByteIdentical();
     void tileFieldsAreEditedInThePanelAndUndo();
     void aBadFieldValueIsRefused();
+    void newTmpFromImageMakesATemplateThatSaves();
+    void theNewTmpDialogDefaultsToCellsWithPixels();
+    void saveAsTmpOfAnImageAsksForTheTemplate();
+    void saveAsTmpOfAnImageIsRefusedWithoutDialogs();
+    void newTmpFromImageIsInTheFileMenu();
 
 private:
     pictura::PictureView* open(const QString& path);
@@ -533,6 +545,182 @@ void TmpTest::aBadFieldValueIsRefused()
     QTRY_COMPARE(table->item(1, 8)->text(), QStringLiteral("#102030 / #405060"));
     QCOMPARE(view->history_index(), history);
     QCOMPARE(pictura::tmp_tiles(*view)[1].height, 2);
+}
+
+// A 120 x 60 white image: the bounding box of a 2 x 2 grid of 60 x 30 tiles.
+void TmpTest::newTmpFromImageMakesATemplateThatSaves()
+{
+    QVERIFY(window_->newDocument(QStringLiteral("Art"), 120, 60, QStringLiteral("rgb"), 8,
+                                 QStringLiteral("white")));
+    pictura::PictureView* art = window_->activeView();
+    QVERIFY(art);
+    const rust::Vec<bool> cells = pictura::tmp_image_cells(*art, kCx, kCy, 2, 2);
+    QCOMPARE(int(cells.size()), 4);
+    QVERIFY(cells[0] && cells[1] && cells[2] && cells[3]);
+    const QString pal = dir_.filePath(QStringLiteral("isotem.pal"));
+    // Cells 0 and 3 only, height 1, land 13, nearest colours, flat z, no
+    // extras.
+    QVERIFY2(support_->newTmpFromImage(art, {kCx, kCy, 2, 2, 1, 13, 0, 1, 1, 0}, {1, 0, 0, 1},
+                                       pal, QStringLiteral("made")),
+             qPrintable(support_->lastGateMessage()));
+    pictura::PictureView* made = window_->activeView();
+    QVERIFY(made && made != art);
+    const pictura::TmpInfo info = pictura::tmp_info(*made);
+    QVERIFY(info.valid);
+    QCOMPARE(info.tiles, 2);
+    QCOMPARE(info.palette_name, QStringLiteral("isotem.pal"));
+    QCOMPARE(made->document_width(), 60);
+    QCOMPARE(made->document_height(), 60);
+    // The white outside the two diamonds is left for the gate.
+    QVERIFY2(support_->lastGateMessage().contains(QStringLiteral("outside the tiles")),
+             qPrintable(support_->lastGateMessage()));
+    const pictura::TmpCheck check = pictura::tmp_check(*made);
+    QCOMPARE(check.off_palette, 0);
+    QVERIFY(check.outside > 0);
+    window_->refresh();
+    QTRY_COMPARE(support_->tiles()->tileCount(), 2);
+    // Clip and Save writes a template both tiles of which read back.
+    pictura::ShpSupport::setGateInteractive(1);
+    GateClicker clicker(QStringLiteral("shpGateClip"));
+    const QString out = dir_.filePath(QStringLiteral("made.tem"));
+    QVERIFY(window_->saveActiveAs(out));
+    QVERIFY(clicker.seen());
+    QVERIFY(pictura::tmp_sniff_file(out));
+    QVERIFY(window_->openDocumentAtPath(out));
+    window_->refresh();
+    pictura::PictureView* back = window_->activeView();
+    QVERIFY(back && back != made);
+    QCOMPARE(pictura::tmp_info(*back).tiles, 2);
+    const rust::Vec<pictura::TmpTile> tiles = pictura::tmp_tiles(*back);
+    QCOMPARE(tiles[1].slot, 3);
+    QCOMPARE(tiles[1].height, 1);
+    QCOMPARE(tiles[1].land, 13);
+    QVERIFY(tiles[1].has_z);
+    QVERIFY(!tiles[1].has_extra);
+    // Refused: no cell chosen.
+    QVERIFY(!support_->newTmpFromImage(art, {kCx, kCy, 2, 2, 0, 0, 0, 1, 0, 0}, {0, 0, 0, 0},
+                                       pal, QStringLiteral("none")));
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("at least one")));
+}
+
+void TmpTest::theNewTmpDialogDefaultsToCellsWithPixels()
+{
+    QList<QList<int>> asked;
+    pictura::TmpFromImageDialog dialog(
+        120, 60,
+        [&asked](int cx, int cy, int bx, int by) {
+            asked << QList<int>{cx, cy, bx, by};
+            QList<bool> out(bx * by, false);
+            out[0] = true;
+            return out;
+        },
+        [](const QString& suffix) { return QStringLiteral("/pal/iso%1.pal").arg(suffix); },
+        QString(), nullptr);
+    QCOMPARE(dialog.colsBox()->value(), 2);
+    QCOMPARE(dialog.rowsBox()->value(), 2);
+    QCOMPARE(asked.last(), (QList<int>{60, 30, 2, 2}));
+    QCOMPARE(dialog.cells(), (QList<int>{1, 0, 0, 0}));
+    QCOMPARE(dialog.paletteField()->path(), QStringLiteral("/pal/isotem.pal"));
+    QCOMPARE(dialog.params(), (QList<int>{60, 30, 2, 2, 0, 0, 0, 1, 0, 0}));
+    // Editable: tick cell 3, flat z, extras, the fields, another theater.
+    dialog.cellTable()->item(1, 1)->setCheckState(Qt::Checked);
+    QCOMPARE(dialog.cells(), (QList<int>{1, 0, 0, 1}));
+    QVERIFY(dialog.summaryForTest().contains(QStringLiteral("2 tile")));
+    dialog.zBox()->setCurrentIndex(1);
+    dialog.extrasBox()->setChecked(true);
+    dialog.landBox()->setValue(15);
+    dialog.coloursBox()->setCurrentIndex(1);
+    QCOMPARE(dialog.params(), (QList<int>{60, 30, 2, 2, 0, 15, 0, 0, 1, 1}));
+    dialog.theaterBox()->setCurrentIndex(1);
+    QCOMPARE(dialog.theater(), QStringLiteral("sno"));
+    QCOMPARE(dialog.paletteField()->path(), QStringLiteral("/pal/isosno.pal"));
+    // Tiberian Sun tiles; a new grid asks for its cells again.
+    dialog.gameBox()->setCurrentIndex(1);
+    QCOMPARE(asked.last(), (QList<int>{48, 24, 2, 2}));
+    dialog.colsBox()->setValue(3);
+    QCOMPARE(asked.last(), (QList<int>{48, 24, 3, 2}));
+    QCOMPARE(dialog.cells().size(), 6);
+    QCOMPARE(dialog.params().mid(0, 4), (QList<int>{48, 24, 3, 2}));
+    // No cell: OK is off.
+    dialog.cellTable()->item(0, 0)->setCheckState(Qt::Unchecked);
+    auto* buttons = dialog.findChild<QDialogButtonBox*>();
+    QVERIFY(buttons && !buttons->button(QDialogButtonBox::Ok)->isEnabled());
+    // A theater fixed by the Save As path.
+    pictura::TmpFromImageDialog fixed(60, 30, {}, {}, QStringLiteral("DES"), nullptr);
+    QCOMPARE(fixed.theater(), QStringLiteral("des"));
+    QVERIFY(!fixed.theaterBox()->isEnabled());
+}
+
+void TmpTest::saveAsTmpOfAnImageAsksForTheTemplate()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    QVERIFY(window_->newDocument(QStringLiteral("Plain"), 60, 30, QStringLiteral("rgb"), 8,
+                                 QStringLiteral("white")));
+    pictura::PictureView* plain = window_->activeView();
+    QVERIFY(plain);
+    const int documents = window_->documentCount();
+    bool seen = false;
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, [&] {
+        for (QWidget* widget : QApplication::topLevelWidgets()) {
+            auto* dialog = qobject_cast<pictura::TmpFromImageDialog*>(widget);
+            if (!dialog || !dialog->isVisible() || seen) {
+                continue;
+            }
+            seen = true;
+            QCOMPARE(dialog->theater(), QStringLiteral("tem"));
+            QCOMPARE(dialog->paletteField()->path(), dir_.filePath(QStringLiteral("isotem.pal")));
+            QCOMPARE(dialog->cells(), (QList<int>{1}));
+            dialog->extrasBox()->setChecked(true);
+            dialog->accept();
+        }
+    });
+    poll.start(20);
+    const QString out = dir_.filePath(QStringLiteral("plain.tem"));
+    QVERIFY(!window_->saveActiveAs(out)); // the image itself is not saved
+    QVERIFY(seen);
+    QVERIFY2(support_->savedCopy(), qPrintable(support_->lastGateMessage()));
+    QVERIFY(pictura::tmp_sniff_file(out));
+    QCOMPARE(window_->documentCount(), documents + 1);
+    pictura::PictureView* made = window_->activeView();
+    QVERIFY(made && made != plain);
+    QCOMPARE(pictura::tmp_info(*made).tiles, 1);
+    QCOMPARE(window_->documentPath(window_->activeDocumentIndex()), out);
+    // The white corners became the tile's extra block.
+    const rust::Vec<pictura::TmpTile> tiles = pictura::tmp_tiles(*made);
+    QVERIFY(tiles[0].has_extra);
+    QVERIFY(!tiles[0].has_extra_z);
+    QVERIFY(!pictura::tmp_info(*plain).valid);
+    QCOMPARE(plain->document_width(), 60);
+}
+
+void TmpTest::saveAsTmpOfAnImageIsRefusedWithoutDialogs()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    QVERIFY(window_->newDocument(QStringLiteral("Plain"), 60, 30, QStringLiteral("rgb"), 8,
+                                 QStringLiteral("white")));
+    const QString out = dir_.filePath(QStringLiteral("refused.tem"));
+    QVERIFY(!window_->saveActiveAs(out));
+    QVERIFY(!QFileInfo::exists(out));
+    QVERIFY2(support_->lastGateMessage().contains(QStringLiteral("interactive")),
+             qPrintable(support_->lastGateMessage()));
+}
+
+void TmpTest::newTmpFromImageIsInTheFileMenu()
+{
+    QAction* action = support_->newTmpAction();
+    QVERIFY(action);
+    QMenu* file = nullptr;
+    for (QAction* top : window_->menuBar()->actions()) {
+        if (top->text().remove(QLatin1Char('&')) == QStringLiteral("File")) {
+            file = top->menu();
+        }
+    }
+    QVERIFY(file);
+    const QList<QAction*> actions = file->actions();
+    const qsizetype at = actions.indexOf(action);
+    QVERIFY(at > 0);
+    QCOMPARE(actions.at(at - 1), support_->newShpAction());
 }
 
 QTEST_MAIN(TmpTest)

@@ -1025,8 +1025,8 @@ pub(super) use unit::{
 mod tmp;
 pub(in crate::cxxqt_object) use tmp::{decode_tmp, tmp_suffix};
 pub(super) use tmp::{
-    tmp_check, tmp_clip, tmp_info, tmp_land_label, tmp_ramp_label, tmp_set_tile_fields, tmp_snap,
-    tmp_sniff_file, tmp_tile_at, tmp_tiles,
+    tmp_check, tmp_clip, tmp_from_image, tmp_image_cells, tmp_info, tmp_land_label, tmp_ramp_label,
+    tmp_set_tile_fields, tmp_snap, tmp_sniff_file, tmp_tile_at, tmp_tiles,
 };
 
 /// Save to a Westwood path: a TMP template under a TMP suffix (the theater

@@ -12,6 +12,7 @@
 
 class QAction;
 class QDockWidget;
+class QMenu;
 class QMainWindow;
 class QShortcut;
 class QWidget;
@@ -121,6 +122,24 @@ public:
     // Clear shadow frames `frames` (one recorded step, as above).
     int clearShadows(const QList<int>& frames);
 
+    // --- TMP templates from images (shp_support_tmp.cpp) ------------------
+    // File > New TMP from Image (enabled while a document is open).
+    QAction* newTmpAction() const { return newTmpAction_; }
+    // A new TMP template document made of `source`'s composite (the
+    // options as tmp_from_image takes them), after the size limit. False,
+    // with the reason in lastGateMessage(), when nothing was made; the
+    // status bar says what was (pixels left outside the tiles, which Save
+    // offers to clip, and pixels off the canvas).
+    bool newTmpFromImage(PictureView* source, const QList<int>& params, const QList<int>& cells,
+                         const QString& palette, const QString& name);
+    // The options dialog (TmpFromImageDialog), then newTmpFromImage().
+    // `path`: a Save As target (its suffix is the theater; the new document
+    // is then saved there through the TMP gate, and this returns false with
+    // savedCopy() telling whether it was), or empty (File > New TMP from
+    // Image). Interactive only: without dialogs it is refused with the
+    // reason.
+    bool tmpFromImageWithDialog(PictureView* source, const QString& path, bool dialogs);
+
     // The bytes of sheet past the limit the user agreed `view` may hold.
     static quint64 allowanceOf(const PictureView* view);
     QString lastGateMessage() const { return gateMessage_; }
@@ -191,6 +210,9 @@ private:
     ShpSupport(QMainWindow* frame, ColorState* colors);
     // Menu entries the command table does not hold: File > New SHP.
     void installMenus();
+    // File > New TMP from Image, after New SHP in `menu`
+    // (shp_support_tmp.cpp).
+    void installTmpMenus(QMenu* menu);
     void message(const QString& text);
     bool interactive() const;
     void showOffPalette(PictureView* view);
@@ -243,6 +265,7 @@ private:
     bool commandsForShp_ = false;
     QMetaObject::Connection hoverConnection_;
     QAction* newShpAction_ = nullptr;
+    QAction* newTmpAction_ = nullptr;
     QAction* frameSizeAction_ = nullptr;
     bool savedCopy_ = false;
     QShortcut* prevKey_ = nullptr;

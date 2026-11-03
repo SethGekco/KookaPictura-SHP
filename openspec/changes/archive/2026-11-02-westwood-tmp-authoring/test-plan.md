@@ -1,0 +1,13 @@
+# Test Plan
+
+One row per scenario in the spec delta. Coverage names an automated test, or
+`manual:` with the reason it cannot be automated.
+
+| Scenario | Steps | Expected result | Coverage |
+|---|---|---|---|
+| `tmp_image_codec` | Lay generated images over grids of both tile sizes; choose cells; ask for extras or not; build and parse | Tiles at the measured cell positions, flat z as measured, outside pixels kept for the gate or made extra blocks, the built file reads back as made, bad options refused | `pictura-shp::cells_sit_where_the_real_templates_put_them`, `pictura-shp::default_cells_are_the_diamonds_holding_pixels`, `pictura-shp::flat_z_counts_down_the_diamond_rows`, `pictura-shp::an_image_becomes_tiles_that_build_and_read_back`, `pictura-shp::pixels_outside_the_diamonds_stay_for_the_gate_unless_they_become_extras`, `pictura-shp::what_cannot_be_a_template_is_refused`, `pictura-shp::an_image_bigger_than_the_canvas_drops_what_falls_off` |
+| `tmp_image_document` | Make a template document of an image through the app glue | Tiles and Z layers, an unchanged save writes the built bytes, exact colours and stray pixels left for the gate, extras when asked | `pictura-app::an_image_becomes_a_template_document_that_saves_as_built`, `pictura-app::exact_colours_leave_off_palette_pixels_for_the_gate`, `pictura-app::a_stray_pixel_is_clipped_at_save_unless_it_becomes_an_extra`, `pictura-app::the_shell_integers_are_checked` |
+| `tmp_image_shell` | File > New TMP from Image; Save As `.tem` of an image with and without dialogs | Dialog defaults and edits, a new document that saves and reopens, refused headless, the menu entry after New SHP | `tst_tmp::newTmpFromImageMakesATemplateThatSaves`, `tst_tmp::theNewTmpDialogDefaultsToCellsWithPixels`, `tst_tmp::saveAsTmpOfAnImageAsksForTheTemplate`, `tst_tmp::saveAsTmpOfAnImageIsRefusedWithoutDialogs`, `tst_tmp::newTmpFromImageIsInTheFileMenu` |
+| `tmp_image_ochre` | `PICTURA_TMP_E2E_DIR`, ignored test, then `tmpedit-e2e.py new` | Ochre's reader reads every made template as pictura-shp does | `pictura-app::e2e_writes_templates_made_from_images` |
+| `tmp_save_unchanged`, `tmp_save_edit`, `tmp_save_gate_palette`, `tmp_save_gate_outside` (modified requirement, unchanged scenarios) | As in `2026-11-02-westwood-tmp-terrain` | As there | `tst_tmp::unchangedSaveIsByteIdentical`, `tst_tmp::ctrlSWritesOneByteOfTheEditedTile`, `tst_tmp::offPaletteSaveAsksFirst`, `tst_tmp::aPixelOutsideTheTilesIsClipped` |
+| `tmp_save_refused` | Save a template as `.shp`, an SHP sheet as `.tmp`, an image as `.tem`, all without dialogs | Refused with the reason | `tst_tmp::aTemplateDoesNotSaveAsShp`, `tst_tmp::saveAsTmpOfAnImageIsRefusedWithoutDialogs`, `pictura-app::tmp_suffixes_are_the_theater_ones_and_tmp` |

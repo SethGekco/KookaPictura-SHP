@@ -22,7 +22,8 @@
 //!   document's layout, palette and original bytes inside the document.
 //! - [`tmp`] reads and writes TMP isometric terrain templates, keeping
 //!   every byte of a tile the edit did not touch; [`terrain`] lays a
-//!   template out as document layers and keeps its `KookaTMP` resource.
+//!   template out as document layers and keeps its `KookaTMP` resource;
+//!   [`tmp_image`] makes a new template from an image.
 //! - [`mix`] reads MIX archives (nested, encrypted, checksummed) and
 //!   writes a new one that copies untouched entries byte for byte.
 //!
@@ -37,6 +38,7 @@ pub mod sheet;
 mod source;
 pub mod terrain;
 pub mod tmp;
+pub mod tmp_image;
 pub mod unit;
 
 pub use codec::{

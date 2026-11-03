@@ -67,7 +67,12 @@ effect art directly.
   re-encoded; off-palette colors, Z greys that are not depths and pixels
   outside the tiles are caught first (Snap, Clip or Show Me). Checked
   against 2,745 real templates: every one saves back byte-identical (see
-  [`SHP-PLAN.md`](SHP-PLAN.md)).
+  [`SHP-PLAN.md`](SHP-PLAN.md)). File > New TMP from Image (and Save As TMP
+  of any image) makes a template of a picture: choose the game (TS 48x24 or
+  RA2 60x30 tiles), the grid, which cells hold tiles (by default those
+  with pixels), height, land and ramp type, theater and palette, nearest or
+  exact colors, flat or no z-data, and whether pixels outside the tiles
+  become extra blocks.
   MIX archives (`ra2.mix`, `expandmd01.mix` and the archives nested in
   them; TD/RA1 and RA/TS/RA2 layouts, encrypted and checksummed indexes)
   open from File > Open in a MIX browser: a tree of every entry with its

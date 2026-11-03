@@ -32,6 +32,11 @@ other `pictura-*` crate, no third-party dependency.
   block keeps its size, so untouched tiles, uninitialised header bytes, gaps
   and tails stay byte for byte; a tile that gains a block is laid out afresh
   as Ochre's `build_tmp` does.
+- `tmp_image` makes a new template from an RGBA image: the image over the
+  template grid (cell `(col, row)` at `((col - row) * cx / 2, (col + row) *
+  cy / 2)`, as in every real template measured), the chosen cells as
+  tiles, flat-ground or no z-data, and pixels outside the diamonds either
+  as extra blocks (each to the nearest tile) or left for the save gate.
 - `mix` reads MIX archives: the Tiberian Dawn / Red Alert 1 layout and the
   Red Alert / Tiberian Sun / Red Alert 2 layout with flags, the encrypted
   index (Blowfish, its key recovered from the archive's 80-byte key source

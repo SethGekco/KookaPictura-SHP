@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// KookaPictura-SHP fork: the dialogs that turn one Westwood format into
+// another -- an image into a new TMP terrain template (File > New TMP from
+// Image, Save As TMP of an image), and a template into an SHP (Save As SHP
+// of a template).
+#pragma once
+
+#include <QtWidgets/QDialog>
+
+#include <functional>
+
+class QCheckBox;
+class QComboBox;
+class QLabel;
+class QPushButton;
+class QSpinBox;
+class QTableWidget;
+
+namespace pictura {
+
+class ShpPaletteField;
+
+// The options of a new TMP template made from an image: the game (its tile
+// size), the template grid in cells, which cells hold tiles (by default
+// every cell whose diamond covers a pixel that is not transparent), the
+// height, land and ramp of every tile (flat clear ground by default), the
+// theater and palette, how colours become palette indices, the z-data, and
+// whether pixels outside the diamonds become extra blocks.
+class TmpFromImageDialog : public QDialog {
+    Q_OBJECT
+
+public:
+    // The default cells of a cx x cy tile grid of blocks x by over the image.
+    using CellsFn = std::function<QList<bool>(int cx, int cy, int bx, int by)>;
+    // The palette a template of the theater `suffix` would open with.
+    using PaletteFn = std::function<QString(const QString& suffix)>;
+
+    // `theater`: the suffix the template will be saved under (the theater
+    // box is then fixed), or empty to choose one.
+    TmpFromImageDialog(int imageWidth, int imageHeight, CellsFn cells, PaletteFn palette,
+                       const QString& theater, QWidget* parent);
+
+    // Tile width and height, blocks x and y, height, land, ramp, nearest
+    // (0/1), z-data (0 none, 1 flat), extras (0/1): what tmp_from_image
+    // takes.
+    QList<int> params() const;
+    // One 0/1 per slot, row by row.
+    QList<int> cells() const;
+    QString palette() const;
+    QString theater() const;
+
+    QComboBox* gameBox() const { return game_; }
+    QSpinBox* colsBox() const { return cols_; }
+    QSpinBox* rowsBox() const { return rows_; }
+    QTableWidget* cellTable() const { return cellTable_; }
+    QPushButton* resetCellsButton() const { return resetCells_; }
+    QSpinBox* heightBox() const { return height_; }
+    QSpinBox* landBox() const { return land_; }
+    QSpinBox* rampBox() const { return ramp_; }
+    QComboBox* theaterBox() const { return theater_; }
+    QComboBox* coloursBox() const { return colours_; }
+    QComboBox* zBox() const { return z_; }
+    QCheckBox* extrasBox() const { return extras_; }
+    ShpPaletteField* paletteField() const { return palette_; }
+    QString summaryForTest() const;
+
+private:
+    int tileWidth() const;
+    int tileHeight() const;
+    // Rebuild the cell table for the grid, checked as the image suggests.
+    void resetCells();
+    void updateSummary();
+    void updateNames();
+
+    int imageWidth_ = 0;
+    int imageHeight_ = 0;
+    CellsFn cellsFn_;
+    PaletteFn paletteFn_;
+    QComboBox* game_ = nullptr;
+    QSpinBox* cols_ = nullptr;
+    QSpinBox* rows_ = nullptr;
+    QTableWidget* cellTable_ = nullptr;
+    QPushButton* resetCells_ = nullptr;
+    QSpinBox* height_ = nullptr;
+    QSpinBox* land_ = nullptr;
+    QSpinBox* ramp_ = nullptr;
+    QLabel* landName_ = nullptr;
+    QLabel* rampName_ = nullptr;
+    QComboBox* theater_ = nullptr;
+    QComboBox* colours_ = nullptr;
+    QComboBox* z_ = nullptr;
+    QCheckBox* extras_ = nullptr;
+    ShpPaletteField* palette_ = nullptr;
+    QLabel* summary_ = nullptr;
+};
+
+} // namespace pictura

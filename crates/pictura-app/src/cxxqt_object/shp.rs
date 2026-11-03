@@ -292,6 +292,35 @@ pub mod ffi {
             radar_high: u32,
         ) -> bool;
 
+        /// For each slot of a `blocks_x` x `blocks_y` grid of `cx` x `cy`
+        /// tiles laid over `source`'s composite (its top-left on the grid's
+        /// top-left), whether the cell's diamond holds a pixel that is not
+        /// transparent; empty for a tile size or grid out of range.
+        fn tmp_image_cells(
+            source: &PictureView,
+            cx: i32,
+            cy: i32,
+            blocks_x: i32,
+            blocks_y: i32,
+        ) -> Vec<bool>;
+
+        /// A new TMP template document in `view` made of `source`'s
+        /// composite: `params` are tile width and height, blocks x and y,
+        /// height, land, ramp, nearest colours (0/1), z-data (0 none, 1
+        /// flat), extras (0/1); `cells` one 0/1 per slot. Checked against
+        /// the size limit (`allowance` as for `shp_frame_op`). Returns
+        /// `[tiles, pixels outside the tiles, pixels off the canvas, width,
+        /// height]`, or empty with the reason in `shp_last_error`.
+        fn tmp_from_image(
+            view: Pin<&mut PictureView>,
+            source: &PictureView,
+            name: &QString,
+            params: &[i32],
+            cells: &[i32],
+            palette: &QString,
+            allowance: u64,
+        ) -> Vec<i32>;
+
         /// The `.pal` the next `open_image_start` on this view uses for an
         /// SHP; empty for the built-in grey fallback.
         fn shp_set_open_palette(view: Pin<&mut PictureView>, path: &QString);

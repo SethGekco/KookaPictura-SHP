@@ -531,6 +531,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/image_view_guides.cpp
     crates/pictura-app/cpp/image_view_shp.cpp
     crates/pictura-app/cpp/shp_authoring.cpp
+    crates/pictura-app/cpp/tmp_authoring.cpp
     crates/pictura-app/cpp/shp_palettes.cpp
     crates/pictura-app/cpp/shp_support.cpp
     crates/pictura-app/cpp/shp_support_unit.cpp
@@ -862,6 +863,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/panels/tmp_tiles_panel.h
     crates/pictura-app/cpp/panels/mix_browser_panel.h
     crates/pictura-app/cpp/shp_authoring.h
+    crates/pictura-app/cpp/tmp_authoring.h
     crates/pictura-app/cpp/shp_palettes.h
     crates/pictura-app/cpp/shp_support.h
     crates/pictura-app/cpp/mix_support.h

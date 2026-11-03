@@ -16,7 +16,7 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/src/cxxqt_object/open_jobs/imp.rs` | `decode_image_with_options`: `shp::decode_shp` right after the file is read, before `decode_import` (so it wins over an installed Qt SHP plugin and skips `finalize_import`); `open_image_start`: takes `shp_open` and runs the decode inside `shp::with_open_request` |
 | `crates/pictura-app/src/cxxqt_object/impl_core.rs` | `revert`: the decode runs inside `shp::with_document_palette`, so a reverted SHP keeps its palette |
 | `crates/pictura-app/src/cxxqt_object/impl_core/save.rs` | `save`: an `shp` suffix, a theater suffix or `tmp` goes to `shp::save_westwood` (a TMP template to the TMP writer, an SHP sheet to the SHP writer) before the native fallback |
-| `CMakeLists.txt` | the new shell sources (`shp_authoring`, `shp_palettes`, `shp_support`, `shp_support_unit`, `shp_support_tmp`, `shp_undo_focus`, `image_view_shp`, `panels/shp_{frames,palette,playback,unit}_panel`, `panels/tmp_tiles_panel`, and for MIX archives `mix_support` and `panels/mix_browser_panel` with their headers) |
+| `CMakeLists.txt` | the new shell sources (`shp_authoring`, `tmp_authoring`, `shp_palettes`, `shp_support`, `shp_support_unit`, `shp_support_tmp`, `shp_undo_focus`, `image_view_shp`, `panels/shp_{frames,palette,playback,unit}_panel`, `panels/tmp_tiles_panel`, and for MIX archives `mix_support` and `panels/mix_browser_panel` with their headers) |
 | `crates/pictura-app/cpp/tests/CMakeLists.txt` | `tst_shp`, `tst_shp_view`, `tst_shp_unit`, `tst_tmp` and `tst_mix` in the suite list |
 | `crates/pictura-app/cpp/frame_build.cpp` | `registerPanel(ShpSupport::install(this, colorState_)->dock(), Qt::BottomDockWidgetArea)`, `registerPanel(MixSupport::install(this)->dock(), Qt::BottomDockWidgetArea)` (the MIX browser) and their includes |
 | `crates/pictura-app/cpp/frame_session.cpp` | `retargetDock` calls `ShpSupport::setView`, `refreshDock` calls `ShpSupport::refresh`; one include |
@@ -40,13 +40,14 @@ files Kooka Pictura upstream also changes; check them first after
 
 Everything else for SHP documents lives in new files:
 `crates/pictura-app/src/cxxqt_object/shp.rs` (bridge declarations) and
-`shp/{imp,window,frames,authoring,unit,tmp,mix}.rs` with their `*_tests.rs`, `crates/pictura-shp/src/{sheet,resource,unit,tmp,terrain}.rs`, the MIX codec `crates/pictura-shp/src/mix/` with its name list `data/mix-names.txt`, and in
+`shp/{imp,window,frames,authoring,unit,tmp,tmp_image,mix}.rs` with their `*_tests.rs`, `crates/pictura-shp/src/{sheet,resource,unit,tmp,tmp_image,terrain}.rs`, the MIX codec `crates/pictura-shp/src/mix/` with its name list `data/mix-names.txt`, and in
 the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP or a TMP template opens with, MIX archives included),
 `cpp/mix_support.{h,cpp}` and `cpp/panels/mix_browser_panel.{h,cpp}` (the MIX browser, documents from archives, the save prompt, export, palettes in archives, Preferences > MIX Archives),
 `cpp/shp_support.{h,cpp}`, `cpp/shp_support_unit.cpp` and `cpp/shp_support_tmp.cpp` (the TMP save gate) (the dock, `,`/`.` stepping, paging, frame operations, the save gate, the shadow tools, the radar-color save option,
 the File > New SHP and Image > Frame Size menu entries, inserted at runtime after
 File > New and Image > Canvas Size),
 `cpp/shp_authoring.{h,cpp}` (the New SHP, Save As SHP and Frame Size dialogs),
+`cpp/tmp_authoring.{h,cpp}` (the New TMP from Image dialog; `shp_support_tmp.cpp` adds File > New TMP from Image after New SHP and routes Save As TMP of an image through it),
 `cpp/shp_undo_focus.{h,cpp}` (Undo/Redo focus the frame they changed),
 `cpp/panels/shp_{frames,palette,playback,unit}_panel.{h,cpp}`, `cpp/panels/tmp_tiles_panel.{h,cpp}` (the Tiles panel of a TMP template), `cpp/image_view_shp.cpp`
 (the frame grid, tile outlines, house-color preview, onion skin, shadow underlay and off-palette marks) and `cpp/tests/{tst_shp,tst_shp_view,tst_shp_unit,tst_tmp,tst_mix}.cpp` with their

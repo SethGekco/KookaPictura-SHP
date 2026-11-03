@@ -180,6 +180,7 @@ void ShpSupport::installMenus()
     const QList<QAction*> actions = menu->actions();
     const qsizetype at = actions.indexOf(fileNew);
     menu->insertAction(actions.value(at + 1), newShpAction_);
+    installTmpMenus(menu);
 
     // Image > Frame Size, right after Canvas Size (which an SHP sheet
     // disables).
@@ -397,21 +398,15 @@ bool ShpSupport::saveGate(PictureView* view, bool dialogs, const QString& path)
     if (view && tmp_info(*view).valid) {
         return tmpGate(view, dialogs, path);
     }
+    // An image (or, under .tmp, an SHP sheet) saved as a TMP is made into a
+    // new template first; an SHP sheet keeps saving under a theater suffix.
     if (view && !shp_info(*view).valid && !path.isEmpty()) {
-        if (isTmpPath(path)) {
-            gateMessage_ = tr("Only a TMP terrain template or an SHP sheet saves as .%1; "
-                              "turning an image into a TMP is not supported.")
-                               .arg(QFileInfo(path).suffix().toLower());
-            message(gateMessage_);
-            return false;
-        }
-        return convertForSave(view, path, dialogs);
+        return isTmpPath(path) ? tmpFromImageWithDialog(view, path, dialogs)
+                               : convertForSave(view, path, dialogs);
     }
     if (view && QFileInfo(path).suffix().compare(QStringLiteral("tmp"), Qt::CaseInsensitive)
                     == 0) {
-        gateMessage_ = tr("Only a TMP terrain template saves as .tmp.");
-        message(gateMessage_);
-        return false;
+        return tmpFromImageWithDialog(view, path, dialogs);
     }
     const bool ok =
         cleanGate(view, dialogs, false) && unitSaveCheck(view, dialogs && interactive());
