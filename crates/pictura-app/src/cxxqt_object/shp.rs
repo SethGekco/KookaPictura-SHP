@@ -120,6 +120,17 @@ pub mod ffi {
         gutter: i32,
     }
 
+    /// A frame's radar color (`0xRRGGBB`): the one in the file (none for
+    /// an added frame) and the average of its pixels now (none for an
+    /// empty frame).
+    #[namespace = "pictura"]
+    struct ShpRadar {
+        has_file: bool,
+        file: u32,
+        has_average: bool,
+        average: u32,
+    }
+
     #[namespace = "pictura"]
     extern "Rust" {
         /// True when `path` holds a TS/RA2 SHP (the whole frame table checks
@@ -334,6 +345,16 @@ pub mod ffi {
         /// entries there, as `0xFFRRGGBB`. Approximate: not the game's own
         /// formula. Empty for a document that is not an SHP.
         fn shp_house_ramp(view: &PictureView, rgb: u32, first: i32, last: i32) -> Vec<u32>;
+
+        /// File frame `frame`'s radar color, in the file and as the average
+        /// of its pixels now.
+        fn shp_radar(view: &PictureView, frame: i32) -> ShpRadar;
+
+        /// Recompute every drawn frame's radar color (the average of its
+        /// pixels in the palette as read) on the next SHP save on this
+        /// thread; that save takes the request. Off by default: Save keeps
+        /// the radar colors the file has.
+        fn shp_set_save_radar(on: bool);
 
         /// Test seam: the size limit and available memory in bytes (0 keeps
         /// the real value).

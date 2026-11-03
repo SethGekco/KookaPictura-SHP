@@ -1,15 +1,16 @@
 // Derived from Ochre's C&C addon (`addons/cnc/__init__.py`
-// `SplitShadowsCommand`). Copyright (C) 2026 Ochre contributors, GPL-3.0-or-later, by the owner of
+// `SplitShadowsCommand`, `addons/cnc/cncshp.py` `_average_colour`). Copyright (C) 2026 Ochre contributors, GPL-3.0-or-later, by the owner of
 // this fork.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Unit-sprite conventions: the shadow half and a house-color preview ramp.
+//! Unit-sprite conventions: the shadow half, a house-color preview ramp and
+//! the radar color.
 //!
 //! A TS/RA2 unit SHP conventionally holds 2N frames: N of art followed by N
 //! shadow frames that use only index 0 (transparent) and index 1 (shadow).
 //! Nothing in the file says so; it is read from the pixels ([`split`]).
 
-use crate::codec::{decode_frame, FrameHeader};
+use crate::codec::{decode_frame, FrameHeader, FRAME_HEADER, HEADER};
 use crate::palette::Palette;
 use std::ops::RangeInclusive;
 
@@ -147,4 +148,47 @@ pub fn house_ramp(palette: &Palette, range: RangeInclusive<u8>, rgb: u32) -> Vec
             0xFF00_0000 | (scale(16) << 16) | (scale(8) << 8) | scale(0)
         })
         .collect()
+}
+
+/// The radar color of a frame: the mean of its non-transparent pixels'
+/// colors in the palette as read, each channel rounded down (Ochre's
+/// `_average_colour`). `None` for an empty frame.
+pub fn average_color(plane: &[u8], palette: &Palette) -> Option<[u8; 3]> {
+    let mut sum = [0u64; 3];
+    let mut count = 0u64;
+    for &v in plane.iter().filter(|&&v| v != 0) {
+        let c = palette.argb[usize::from(v)];
+        sum[0] += u64::from((c >> 16) as u8);
+        sum[1] += u64::from((c >> 8) as u8);
+        sum[2] += u64::from(c as u8);
+        count += 1;
+    }
+    (count > 0).then(|| sum.map(|s| (s / count) as u8))
+}
+
+/// Recompute the radar field of every frame of SHP bytes (which must pass
+/// [`crate::sniff`]) as [`average_color`] then a zero byte, as Ochre's
+/// writer does when asked. A frame with no pixel keeps its field. Returns
+/// how many fields changed.
+pub fn recompute_radar(bytes: &mut [u8], palette: &Palette) -> usize {
+    let count = usize::from(u16::from_le_bytes([bytes[6], bytes[7]]));
+    let mut changed = 0;
+    for i in 0..count {
+        let header = FrameHeader::read(bytes, i);
+        if !header.has_data() {
+            continue;
+        }
+        let Some([r, g, b]) =
+            decode_frame(bytes, &header).and_then(|plane| average_color(&plane, palette))
+        else {
+            continue;
+        };
+        let at = HEADER + FRAME_HEADER * i + 12;
+        let next = [r, g, b, 0];
+        if bytes[at..at + 4] != next {
+            bytes[at..at + 4].copy_from_slice(&next);
+            changed += 1;
+        }
+    }
+    changed
 }

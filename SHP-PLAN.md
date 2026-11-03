@@ -784,4 +784,16 @@ Phase 3, unit tools (recorded as each piece landed):
   megapixels are recolored per change (zoomed far out on a big sheet, only
   the active cell); the result is cached until the pixels, the region or
   the colors change.
-
+- **Radar color** (Unit panel, "Radar Color"): the readout shows the
+  current frame's radar field as the opened file has it ("none" for an
+  added frame) and the average of its pixels now, read from the sheet, the
+  frame store or the file (`shp_radar`). Save keeps every radar field
+  byte-for-byte by default. "Recompute radar colors on save" (per document,
+  off until turned on) rewrites each drawn frame's field as
+  `unit::average_color` (mean of the non-zero pixels' palette colors,
+  floored, then a zero byte) - the port of Ochre's `_average_colour`; empty
+  frames keep their field (`unit::recompute_radar`). The request rides a
+  thread-local set by the save gate and taken by that save
+  (`shp_set_save_radar`), like the open-palette request. The "in the file"
+  value stays the opened file's: after a recompute save, turning the
+  option off again saves the opened file's colors, not the recomputed ones.

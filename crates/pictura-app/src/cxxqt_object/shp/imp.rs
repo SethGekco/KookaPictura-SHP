@@ -323,8 +323,9 @@ pub(in crate::cxxqt_object) fn encode(doc: &Document) -> Result<Vec<u8>, String>
 
 /// Save the document to `path` as an SHP.
 pub(in crate::cxxqt_object) fn save_shp(mut view: Pin<&mut PictureView>, path: &str) -> bool {
+    let recompute = unit::take_save_radar();
     let encoded = match view.rust().session.doc.as_ref() {
-        Some(doc) => encode(doc),
+        Some(doc) => unit::encode_for_save(doc, recompute),
         None => fail("no document"),
     };
     let bytes = match encoded {
@@ -963,8 +964,8 @@ pub(super) use frames::{shp_frame_size, shp_plan_frame_size};
 #[path = "unit.rs"]
 mod unit;
 pub(super) use unit::{
-    shp_clear_shadows, shp_generate_shadows, shp_house_ramp, shp_plan_shadow_half,
-    shp_shadow_detect, shp_shadow_violations,
+    shp_clear_shadows, shp_generate_shadows, shp_house_ramp, shp_plan_shadow_half, shp_radar,
+    shp_set_save_radar, shp_shadow_detect, shp_shadow_violations,
 };
 
 #[path = "authoring.rs"]

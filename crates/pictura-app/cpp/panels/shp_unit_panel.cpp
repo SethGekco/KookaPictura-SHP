@@ -28,6 +28,14 @@ namespace pictura {
 namespace {
 
 const char* const kShadowsProperty = "shpShadows";
+const char* const kRadarProperty = "shpRecomputeRadar";
+
+QString swatch(quint32 rgb)
+{
+    const QString name = QColor::fromRgb(rgb).name();
+    return QStringLiteral("<span style=\"background-color:%1\">&nbsp;&nbsp;&nbsp;&nbsp;</span> %1")
+        .arg(name);
+}
 
 } // namespace
 
@@ -136,7 +144,30 @@ ShpUnitPanel::ShpUnitPanel(ShpFramesPanel* frames, QWidget* parent)
     houseForm->addRow(house_);
     houseForm->addRow(tr("Color:"), colorRow);
     layout->addWidget(houseBox);
+
+    auto* radarBox = new QGroupBox(tr("Radar Color"), this);
+    auto* radarForm = new QFormLayout(radarBox);
+    radarFile_ = new QLabel(radarBox);
+    radarFile_->setObjectName(QStringLiteral("shpRadarFile"));
+    radarFile_->setToolTip(tr("The current frame's radar (minimap) color as the file has it"));
+    radarAverage_ = new QLabel(radarBox);
+    radarAverage_->setObjectName(QStringLiteral("shpRadarAverage"));
+    radarAverage_->setToolTip(tr("The average of the frame's pixels now"));
+    recomputeRadar_ = new QCheckBox(tr("Recompute radar colors on save"), radarBox);
+    recomputeRadar_->setObjectName(QStringLiteral("shpRecomputeRadar"));
+    recomputeRadar_->setToolTip(
+        tr("Save each frame's radar color as the average of its pixels. Off: Save keeps the "
+           "colors the file has (a new frame gets none)."));
+    radarForm->addRow(tr("In the file:"), radarFile_);
+    radarForm->addRow(tr("Average now:"), radarAverage_);
+    radarForm->addRow(recomputeRadar_);
+    layout->addWidget(radarBox);
     layout->addStretch(1);
+    connect(recomputeRadar_, &QCheckBox::toggled, this, [this](bool on) {
+        if (view_) {
+            view_->setProperty(kRadarProperty, on);
+        }
+    });
     setHouseColor(housePresets().first().second);
     connect(house_, &QCheckBox::toggled, this, [this] { frames_->syncGrid(); });
     connect(houseColors_, &QComboBox::activated, this, [this](int index) {
@@ -208,6 +239,32 @@ QList<QPair<QString, QColor>> ShpUnitPanel::housePresets()
     return out;
 }
 
+bool ShpUnitPanel::recomputeRadarOf(PictureView* view)
+{
+    return view && view->property(kRadarProperty).toBool();
+}
+
+// The radar colors of file frame `frame`, read again when the frame or the
+// pixels changed.
+void ShpUnitPanel::showRadar(int frame)
+{
+    const std::array<quint64, 3> key = {
+        quint64(qint64(frame)), view_ ? quint64(view_->canvas_revision()) : 0,
+        view_ ? quint64(view_->document_generation()) : 0};
+    if (key == radarKey_) {
+        return;
+    }
+    radarKey_ = key;
+    if (!view_ || frame < 0) {
+        radarFile_->setText(tr("(pick a frame)"));
+        radarAverage_->setText(QString());
+        return;
+    }
+    const ShpRadar radar = shp_radar(*view_, frame);
+    radarFile_->setText(radar.has_file ? swatch(radar.file) : tr("none (an added frame)"));
+    radarAverage_->setText(radar.has_average ? swatch(radar.average) : tr("none (empty frame)"));
+}
+
 void ShpUnitPanel::setHouseColor(const QColor& color)
 {
     houseColor_ = color.toRgb();
@@ -277,6 +334,11 @@ void ShpUnitPanel::refresh()
         shadows_->setChecked(shp && shadowsOf(view_));
     }
     shadows_->setEnabled(shp);
+    {
+        const QSignalBlocker block(recomputeRadar_);
+        recomputeRadar_->setChecked(recomputeRadarOf(view_));
+    }
+    recomputeRadar_->setEnabled(shp);
     sync();
 }
 
@@ -365,6 +427,7 @@ void ShpUnitPanel::decorate(ImageView::ShpGrid& grid)
         return;
     }
     const int half = shadowHalf();
+    showRadar(grid.active >= 0 ? grid.first + grid.active : frames_->current());
     grid.shadowHalf = half;
     grid.shadowUnderlay = half > 0 && underlay_->isChecked();
     const int active = grid.active >= 0 ? grid.first + grid.active : -1;

@@ -3,12 +3,12 @@
 //! generating and clearing, the added shadow half, undo, and saved bytes.
 
 use super::tests::{choice, doc, frame_bytes, opened, planes, roomy, sprite, FRAMES, H, W};
-use super::unit::{clear_rust, frame_uses, generate_rust};
+use super::unit::{clear_rust, encode_for_save, frame_uses, generate_rust, radar_info};
 use super::window_tests::{head, paged, paint, small};
 use super::*;
 use crate::history::History;
-use pictura_shp::unit::{silhouette, split, ShadowParams, Use};
-use pictura_shp::{build, parse};
+use pictura_shp::unit::{average_color, silhouette, split, ShadowParams, Use};
+use pictura_shp::{build, parse, FrameHeader};
 
 const ART: usize = 4;
 
@@ -229,4 +229,67 @@ fn a_paged_sprite_without_shadows_gains_a_shadow_half() {
     for k in 0..FRAMES {
         same_frame(&bytes, &file, k);
     }
+}
+
+fn pack(c: [u8; 3]) -> u32 {
+    (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])
+}
+
+#[test]
+fn save_keeps_the_radar_colors_unless_asked_to_recompute_them() {
+    let file = sprite();
+    let mut rust = opened(file.clone(), choice());
+    assert_eq!(encode_for_save(doc(&rust), false).unwrap(), file);
+    let recomputed = encode_for_save(doc(&rust), true).unwrap();
+    assert_eq!(recomputed.len(), file.len());
+    for (k, plane) in planes().iter().enumerate() {
+        let want = average_color(plane, &choice().palette).expect("drawn");
+        let got = FrameHeader::read(&recomputed, k).radar;
+        assert_eq!(got, [want[0], want[1], want[2], 0], "frame {k}");
+        // Everything but the radar field is as it was.
+        let (h, d) = frame_bytes(&recomputed, k);
+        let (fh, fd) = frame_bytes(&file, k);
+        assert_eq!((&h[..12], &h[16..], d), (&fh[..12], &fh[16..], fd));
+    }
+    // The readout: the file's field and the average now, which follows an edit.
+    let info = radar_info(doc(&rust), 3);
+    let field = FrameHeader::read(&file, 3).radar;
+    assert!(info.has_file && info.has_average);
+    assert_eq!(info.file, pack([field[0], field[1], field[2]]));
+    assert_eq!(
+        info.average,
+        pack(average_color(&planes()[3], &choice().palette).unwrap())
+    );
+    paint(&mut rust, 3, 0, 0, 200);
+    let mut edited = planes()[3].clone();
+    edited[0] = 200;
+    assert_eq!(
+        radar_info(doc(&rust), 3).average,
+        pack(average_color(&edited, &choice().palette).unwrap())
+    );
+}
+
+#[test]
+fn the_radar_readout_reads_frames_off_a_paged_sheet_and_added_frames() {
+    let file = sprite();
+    let rust = paged(&file);
+    let info = radar_info(doc(&rust), 8);
+    assert!(!head(&rust).window().contains(&8));
+    let field = FrameHeader::read(&file, 8).radar;
+    assert_eq!(info.file, pack([field[0], field[1], field[2]]));
+    assert_eq!(
+        info.average,
+        pack(average_color(&planes()[8], &choice().palette).unwrap())
+    );
+    // A blank added frame has neither.
+    let mut whole = opened(file, choice());
+    whole_op_rust(
+        &mut whole,
+        pictura_shp::frames::FrameOp::Insert { at: 0, count: 1 },
+        &roomy(),
+        0,
+    )
+    .expect("inserts");
+    let added = radar_info(doc(&whole), 0);
+    assert!(!added.has_file && !added.has_average);
 }

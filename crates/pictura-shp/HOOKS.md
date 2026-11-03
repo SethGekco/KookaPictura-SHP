@@ -41,7 +41,7 @@ Everything else for SHP documents lives in new files:
 `crates/pictura-app/src/cxxqt_object/shp.rs` (bridge declarations) and
 `shp/{imp,window,frames,authoring,unit}.rs` with their `*_tests.rs`, `crates/pictura-shp/src/{sheet,resource,unit}.rs`, and in
 the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP opens with),
-`cpp/shp_support.{h,cpp}` and `cpp/shp_support_unit.cpp` (the dock, `,`/`.` stepping, paging, frame operations, the save gate, the shadow tools,
+`cpp/shp_support.{h,cpp}` and `cpp/shp_support_unit.cpp` (the dock, `,`/`.` stepping, paging, frame operations, the save gate, the shadow tools, the radar-color save option,
 the File > New SHP and Image > Frame Size menu entries, inserted at runtime after
 File > New and Image > Canvas Size),
 `cpp/shp_authoring.{h,cpp}` (the New SHP, Save As SHP and Frame Size dialogs),

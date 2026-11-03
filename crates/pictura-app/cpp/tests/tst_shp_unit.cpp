@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// KookaPictura-SHP fork: the unit tools of SHP documents (the shadow half).
+// KookaPictura-SHP fork: the unit tools of SHP documents (the shadow half,
+// the house-color preview, the radar color).
 // Every sprite and palette here is generated; no game file is used.
 
 #include <QtTest/QtTest>
@@ -57,8 +58,8 @@ QByteArray unitSprite()
         put16(out, 0);
         put16(out, kW);
         put16(out, kH);
-        put32(out, 0); // raw
-        put32(out, 0);
+        put32(out, 0);          // raw
+        put32(out, 0x00112233); // radar: 33 22 11 00, #332211
         put32(out, 0);
         put32(out, quint32(base + k * kW * kH));
     }
@@ -134,6 +135,7 @@ private slots:
     void saveWarnsAboutColoredShadowFramesButSaves();
     void aPagedSpriteGeneratesShadowsOffTheSheet();
     void housePreviewRecolorsTheRemapViewOnly();
+    void radarColorsAreKeptUnlessRecomputeIsOn();
 };
 
 void ShpUnitTest::init()
@@ -471,6 +473,59 @@ void ShpUnitTest::housePreviewRecolorsTheRemapViewOnly()
     QCOMPARE(readFile(onPath), readFile(offPath));
     unit->houseToggle()->setChecked(false);
     QTRY_COMPARE(shown(canvas, p.x(), p.y()), plainP);
+}
+
+void ShpUnitTest::radarColorsAreKeptUnlessRecomputeIsOn()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    pictura::PictureView* view = open(unit_);
+    QVERIFY(view);
+    pictura::ShpUnitPanel* unit = support_->unit();
+    pictura::ShpFramesPanel* frames = support_->frames();
+    QTRY_COMPARE(frames->frameCount(), 2 * kArt);
+    frames->setSelectsCell(false);
+    frames->focusFrame(1);
+    // The readout: the file's color and the average of the pixels now.
+    QTRY_VERIFY(unit->radarFile()->text().contains(QStringLiteral("#332211")));
+    const pictura::ShpRadar radar = pictura::shp_radar(*view, 1);
+    QVERIFY(radar.has_file && radar.has_average);
+    QCOMPARE(radar.file, 0x332211u);
+    QVERIFY(unit->radarAverage()->text().contains(QColor::fromRgb(radar.average).name()));
+
+    // Off by default: Save keeps every byte.
+    QVERIFY(!unit->recomputeRadar()->isChecked());
+    QVERIFY(!pictura::ShpUnitPanel::recomputeRadarOf(view));
+    const QString kept = dir_.filePath(QStringLiteral("radar-kept.shp"));
+    QVERIFY(window_->saveActiveAs(kept));
+    QCOMPARE(readFile(kept), unitSprite());
+
+    // On: each drawn frame's radar field is its average; nothing else moves.
+    unit->recomputeRadar()->setChecked(true);
+    QVERIFY(pictura::ShpUnitPanel::recomputeRadarOf(view));
+    const QString redone = dir_.filePath(QStringLiteral("radar-redone.shp"));
+    QVERIFY(window_->saveActiveAs(redone));
+    const QByteArray before = unitSprite();
+    const QByteArray after = readFile(redone);
+    QCOMPARE(after.size(), before.size());
+    for (int k = 0; k < 2 * kArt; ++k) {
+        const int field = 8 + 24 * k + 12;
+        const quint32 average = pictura::shp_radar(*view, k).average;
+        QCOMPARE(quint8(after[field]), quint8(average >> 16));
+        QCOMPARE(quint8(after[field + 1]), quint8(average >> 8));
+        QCOMPARE(quint8(after[field + 2]), quint8(average));
+        QCOMPARE(quint8(after[field + 3]), quint8(0));
+    }
+    QByteArray masked = after;
+    for (int k = 0; k < 2 * kArt; ++k) {
+        masked.replace(8 + 24 * k + 12, 4, before.mid(8 + 24 * k + 12, 4));
+    }
+    QCOMPARE(masked, before);
+    QVERIFY(after != before);
+    // The option is the document's; turning it off keeps the file's again.
+    unit->recomputeRadar()->setChecked(false);
+    const QString again = dir_.filePath(QStringLiteral("radar-again.shp"));
+    QVERIFY(window_->saveActiveAs(again));
+    QCOMPARE(readFile(again), unitSprite());
 }
 
 QTEST_MAIN(ShpUnitTest)

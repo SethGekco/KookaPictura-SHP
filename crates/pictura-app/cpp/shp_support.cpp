@@ -348,10 +348,16 @@ void ShpSupport::showOffPalette(PictureView* view)
 bool ShpSupport::saveGate(PictureView* view, bool dialogs, const QString& path)
 {
     savedCopy_ = false;
+    // The save that follows a passed gate recomputes the radar colors when
+    // the document asks for it (taken by that save, so it never lingers).
+    shp_set_save_radar(false);
     if (view && !shp_info(*view).valid && !path.isEmpty()) {
         return convertForSave(view, path, dialogs);
     }
-    return cleanGate(view, dialogs, false) && unitSaveCheck(view, dialogs && interactive());
+    const bool ok =
+        cleanGate(view, dialogs, false) && unitSaveCheck(view, dialogs && interactive());
+    shp_set_save_radar(ok && ShpUnitPanel::recomputeRadarOf(view));
+    return ok;
 }
 
 bool ShpSupport::newShp(int width, int height, int frames, const QString& palette)

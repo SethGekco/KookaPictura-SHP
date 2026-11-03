@@ -3,9 +3,10 @@
 
 use pictura_shp::palette::Palette;
 use pictura_shp::unit::{
-    classify, file_frame_use, house_ramp, silhouette, split, violations, ShadowParams, Use, SHADOW,
+    average_color, classify, file_frame_use, house_ramp, recompute_radar, silhouette, split,
+    violations, ShadowParams, Use, SHADOW,
 };
-use pictura_shp::{build, sniff};
+use pictura_shp::{build, sniff, FrameHeader};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
@@ -211,6 +212,55 @@ fn the_house_ramp_follows_the_palette_shading() {
     let even = house_ramp(&black, 16..=31, 0x0010_2030);
     assert_eq!(even[0], 0xFF10_2030);
     assert!(even[15] & 0xFF_FFFF < 0x0010_2030 & 0xFF_FFFF);
+}
+
+fn gray_palette() -> Palette {
+    let mut argb = [0u32; 256];
+    for (i, c) in argb.iter_mut().enumerate() {
+        let v = i as u32;
+        *c = 0xFF00_0000 | (v << 16) | ((255 - v) << 8) | (v / 3);
+    }
+    Palette {
+        argb,
+        name: String::new(),
+    }
+}
+
+#[test]
+fn the_radar_color_is_the_mean_of_the_drawn_pixels_rounded_down() {
+    let palette = gray_palette();
+    // Indices 10 and 13: red (10 + 13) / 2 = 11.5 -> 11, green 245 - 1.5 -> 243,
+    // blue (3 + 4) / 2 = 3.5 -> 3. Transparent pixels do not count.
+    assert_eq!(
+        average_color(&[0, 10, 0, 13, 0], &palette),
+        Some([11, 243, 3])
+    );
+    assert_eq!(average_color(&[7], &palette), Some([7, 248, 2]));
+    assert_eq!(average_color(&[0, 0], &palette), None);
+}
+
+#[test]
+fn recomputing_the_radar_rewrites_drawn_frames_only() {
+    let palette = gray_palette();
+    let planes = vec![art(40), vec![0u8; W * H], art(41)];
+    let mut bytes = build(W as u16, H as u16, &planes).expect("build");
+    let before = bytes.clone();
+    assert_eq!(recompute_radar(&mut bytes, &palette), 2);
+    for (i, plane) in planes.iter().enumerate() {
+        let radar = FrameHeader::read(&bytes, i).radar;
+        match average_color(plane, &palette) {
+            Some([r, g, b]) => assert_eq!(radar, [r, g, b, 0], "frame {i}"),
+            None => assert_eq!(radar, FrameHeader::read(&before, i).radar, "frame {i} kept"),
+        }
+    }
+    // Only the radar fields changed, and a second pass changes nothing.
+    let differing: Vec<usize> = (0..bytes.len())
+        .filter(|&k| bytes[k] != before[k])
+        .collect();
+    assert!(differing
+        .iter()
+        .all(|&k| k >= 8 && (k - 8) % 24 >= 12 && (k - 8) % 24 < 16 && k < 8 + 24 * 3));
+    assert_eq!(recompute_radar(&mut bytes, &palette), 0);
 }
 
 /// The shadow-split census over a private corpus (nothing is written):

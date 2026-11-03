@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // KookaPictura-SHP fork: the Unit panel of an SHP document (the shadow half
-// of a unit sprite, the house-color preview).
+// of a unit sprite, the house-color preview, the radar color).
 #pragma once
 
 #include <QtCore/QHash>
@@ -10,6 +10,8 @@
 #include <QtGui/QColor>
 #include <QtGui/QImage>
 #include <QtWidgets/QWidget>
+
+#include <array>
 
 #include "image_view.h"
 
@@ -36,6 +38,10 @@ class ShpFramesPanel;
 // House color: the remap indices (16-31 of a unit palette) previewed in a
 // multiplayer color or one of the user's, view only and approximate (the
 // palette's own shading of the ramp, not the game's formula).
+//
+// Radar color: each frame's (the minimap color) as the file has it and the
+// average of its pixels now. Save keeps the file's unless "Recompute radar
+// colors on save" is on for the document.
 class ShpUnitPanel : public QWidget {
     Q_OBJECT
 
@@ -77,6 +83,13 @@ public:
     // Preview in `color` (a preset when it is one, else "Custom").
     void setHouseColor(const QColor& color);
 
+    // Whether saving `view` recomputes its radar colors (per document, off
+    // until turned on).
+    static bool recomputeRadarOf(PictureView* view);
+    QCheckBox* recomputeRadar() const { return recomputeRadar_; }
+    QLabel* radarFile() const { return radarFile_; }
+    QLabel* radarAverage() const { return radarAverage_; }
+
 signals:
     void generateRequested(const QList<int>& art, int dx, int dy, double skew);
     void clearRequested(const QList<int>& frames);
@@ -85,6 +98,7 @@ signals:
 private:
     void decorate(ImageView::ShpGrid& grid);
     void sync();
+    void showRadar(int frame);
     QImage offSheetShadow(int frame);
 
     ShpFramesPanel* frames_ = nullptr;
@@ -100,6 +114,11 @@ private:
     QComboBox* houseColors_ = nullptr;
     QLabel* houseSwatch_ = nullptr;
     QColor houseColor_;
+    QCheckBox* recomputeRadar_ = nullptr;
+    QLabel* radarFile_ = nullptr;
+    QLabel* radarAverage_ = nullptr;
+    // What the radar readout shows: frame, canvas revision, generation.
+    std::array<quint64, 3> radarKey_{~quint64(0), 0, 0};
     // The active frame's shadow when it is off a paged sheet: frame, stamp.
     QPair<int, quint64> shadowKey_{-1, 0};
     QImage shadowImage_;

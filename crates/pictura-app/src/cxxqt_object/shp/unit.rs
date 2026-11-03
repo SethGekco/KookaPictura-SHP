@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Unit-sprite tools on SHP documents: the shadow half of a unit sprite
 //! (`pictura_shp::unit`): find it, check it, generate shadows from the art,
-//! clear them; and the house-color preview's ramp.
+//! clear them; the house-color preview's ramp; and the radar color (shown
+//! per frame, recomputed on save only when asked).
 //!
 //! On a whole sheet, generating or clearing is one recorded edit; adding a
 //! missing shadow half grows the sheet like Insert Frames, through the size
@@ -13,11 +14,13 @@
 
 use super::*;
 
+use crate::cxxqt_object::shp::ffi::ShpRadar;
 use pictura_shp::encode_rle;
 use pictura_shp::frames::FrameOp;
 use pictura_shp::resource::{encode_parts, origins, stored, stored_canvas};
 use pictura_shp::sheet::{gutter_pixels, reflow};
 use pictura_shp::unit::{self, ShadowParams, Use};
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 fn rgb_of(px: &[u8; 4]) -> u32 {
@@ -495,4 +498,135 @@ pub(in crate::cxxqt_object) fn shp_house_ramp(
         return Vec::new();
     }
     unit::house_ramp(&header.palette, first..=last, rgb)
+}
+
+thread_local! {
+    /// Recompute the radar colors on the next SHP save on this thread
+    /// (`shp_set_save_radar`); taken by that save.
+    static SAVE_RADAR: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Take the "recompute radar colors" request of the next save.
+pub(in crate::cxxqt_object) fn take_save_radar() -> bool {
+    SAVE_RADAR.with(|r| r.replace(false))
+}
+
+pub(in crate::cxxqt_object) fn shp_set_save_radar(on: bool) {
+    SAVE_RADAR.with(|r| r.set(on));
+}
+
+/// What Save writes: [`encode`], then, when asked, every drawn frame's radar
+/// color recomputed as the average of its pixels in the palette as read.
+/// Untouched, the radar fields are kept (the default).
+pub(in crate::cxxqt_object) fn encode_for_save(
+    doc: &Document,
+    recompute: bool,
+) -> Result<Vec<u8>, String> {
+    let mut bytes = encode(doc)?;
+    if recompute {
+        let header = header(doc).ok_or("This document is not an SHP sheet.")?;
+        unit::recompute_radar(&mut bytes, &header.palette);
+    }
+    Ok(bytes)
+}
+
+/// Cell `cell` of the sheet as palette indices (anything off the palette
+/// reads as 0), read from the plain sheet layer when there is one, so a
+/// readout never composites the whole sheet.
+fn sheet_cell_plane(doc: &Document, header: &Header, cell: usize) -> Vec<u8> {
+    let l = header.layout;
+    let inverse = sheet::inverse(&unique_colours(&header.palette));
+    let (x0, y0) = l.cell_origin(cell);
+    let sw = l.sheet_width();
+    let mut out = vec![0u8; l.width * l.height];
+    let mut fill = |px: &dyn Fn(usize) -> [u8; 4]| {
+        for y in 0..l.height {
+            for x in 0..l.width {
+                let p = px((y0 + y) * sw + x0 + x);
+                if p[3] == 255 {
+                    if let Some(&i) = inverse.get(&rgb_of(&p)) {
+                        out[y * l.width + x] = i;
+                    }
+                }
+            }
+        }
+    };
+    if plain_sheet_layer(doc).is_ok() {
+        let layer = &doc.layers[0];
+        let channel = |id: i16| {
+            layer
+                .channels
+                .iter()
+                .find(|c| c.id == id)
+                .map(|c| &c.data[..])
+        };
+        if let (Some(r), Some(g), Some(b), Some(a)) =
+            (channel(0), channel(1), channel(2), channel(-1))
+        {
+            fill(&|i| [r[i], g[i], b[i], a[i]]);
+        }
+    } else if let Ok((_, rgba)) = sheet_pixels(doc) {
+        fill(&|i| {
+            [
+                rgba[i * 4],
+                rgba[i * 4 + 1],
+                rgba[i * 4 + 2],
+                rgba[i * 4 + 3],
+            ]
+        });
+    }
+    out
+}
+
+/// Frame `frame`'s radar color as the file has it (its original frame's
+/// field; none for an added frame) and the average of its pixels now.
+pub(in crate::cxxqt_object) fn radar_info(doc: &Document, frame: usize) -> ShpRadar {
+    let mut out = ShpRadar {
+        has_file: false,
+        file: 0,
+        has_average: false,
+        average: 0,
+    };
+    let Some(block) = block(doc) else {
+        return out;
+    };
+    let Some((header, _, original)) = resource::parts(block) else {
+        return out;
+    };
+    let Some(origins) = origins(block) else {
+        return out;
+    };
+    if frame >= header.total {
+        return out;
+    }
+    let pack = |[r, g, b]: [u8; 3]| (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+    if let Some(j) = origins[frame].filter(|_| !original.is_empty()) {
+        let radar = pictura_shp::FrameHeader::read(original, j).radar;
+        out.has_file = true;
+        out.file = pack([radar[0], radar[1], radar[2]]);
+    }
+    let (w, h) = (header.layout.width, header.layout.height);
+    let plane = if header.window().contains(&frame) {
+        sheet_cell_plane(doc, &header, frame - header.first)
+    } else {
+        let stored = stored(block).unwrap_or_default();
+        stored_or_original(original, &stored, origins[frame], frame, w, h)
+    };
+    if let Some(avg) = unit::average_color(&plane, &header.palette) {
+        out.has_average = true;
+        out.average = pack(avg);
+    }
+    out
+}
+
+pub(in crate::cxxqt_object) fn shp_radar(view: &PictureView, frame: i32) -> ShpRadar {
+    match (view.rust().session.doc.as_ref(), usize::try_from(frame)) {
+        (Some(doc), Ok(frame)) => radar_info(doc, frame),
+        _ => ShpRadar {
+            has_file: false,
+            file: 0,
+            has_average: false,
+            average: 0,
+        },
+    }
 }

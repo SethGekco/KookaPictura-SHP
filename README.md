@@ -48,10 +48,12 @@ effect art directly.
   shadow under its frame, and Save warns when a shadow frame holds other
   colors. A house-color preview shows the remap colors of a unit in any of
   the eight multiplayer colors or one of your own (view only, and an
-  approximation of the game's ramp).
+  approximation of the game's ramp). It also shows each frame's radar
+  (minimap) color, as the file has it and as the average of its pixels now;
+  Save keeps the file's radar colors unless "Recompute radar colors on
+  save" is on.
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: radar color and palette kinds (see
-  [`SHP-PLAN.md`](SHP-PLAN.md)).
+  byte-identical. Next: palette kinds (see [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
   opens SHPs as sprite sheets (a small converter saves them back). Do not
