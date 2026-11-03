@@ -32,6 +32,20 @@ other `pictura-*` crate, no third-party dependency.
   block keeps its size, so untouched tiles, uninitialised header bytes, gaps
   and tails stay byte for byte; a tile that gains a block is laid out afresh
   as Ochre's `build_tmp` does.
+- `mix` reads MIX archives: the Tiberian Dawn / Red Alert 1 layout and the
+  Red Alert / Tiberian Sun / Red Alert 2 layout with flags, the encrypted
+  index (Blowfish, its key recovered from the archive's 80-byte key source
+  with Westwood's public RSA key) and the SHA-1 checksum of the body; both
+  ID hashes; nested archives; entry kinds sniffed from their first bytes;
+  member paths (`ra2.mix/cache.mix/unittem.pal`). Reading streams: an index
+  and the head of each entry, never a whole archive. `Plan` writes an
+  archive to a new file with the index rebuilt (sorted by signed ID, never
+  encrypted), a checksum recomputed when the source had one, and every
+  untouched entry copied byte for byte; replacing a nested entry rebuilds
+  only the archives on its chain. `names` holds the name lists:
+  `data/mix-names.txt` (the stock archives' names, built by
+  `tests/mix_names.rs`), local mix databases, and names harvested from game
+  INI files, each used only when its ID and content kind agree.
 
 ## Provenance
 
@@ -48,6 +62,14 @@ The format itself is documented publicly:
 - ModEnc (modenc.renegadeprojects.com), the "PAL" article on palette files.
 - XCC Utilities by Olaf van der Spek, the long-standing reference reader and
   writer; the "RLE-Zero only when smaller" rule follows it.
+- MIX archives: ModdingWiki, "MIX Format (TD)" and "MIX Format (TS)"
+  (layouts, ID hashes); XCC's `mix_decode.cpp` and OpenRA's
+  `BlowfishKeyProvider.cs` describe the key recovery (Westwood's public
+  key, the 40-byte blocks, the 56-byte key). The code here is written from
+  those descriptions and from the published definitions of Blowfish
+  (Schneier, 1993; its tables are the hexadecimal digits of pi, computed
+  here, see `src/mix/blowfish_tables.rs`), SHA-1 (FIPS 180-4) and
+  CRC-32 (IEEE 802.3); nothing is copied from those projects.
 
 The real-file rules beyond those documents (flags with a size in their upper
 bits, both raw flags in use, unaligned and aligned packing, garbage between
@@ -55,6 +77,12 @@ frames, tails, empty frames that point at the end of the data, trailing runs
 declared one longer than the row) came from black-box measurement of the
 owner's own files. No EA/Westwood asset, sprite or palette is included in
 this crate, its tests or the repository: every fixture is generated in code.
+The one thing taken from the games is `data/mix-names.txt`, a list of 10,111
+file names (no file content): names read from the stock Red Alert 2 and
+Yuri's Revenge archives' INI files and the stock executables' strings, each
+kept only because its ID is an entry of a stock archive of the kind its
+suffix says. Names from mods stay in a local list under
+`$XDG_STATE_HOME/kooka-pictura/`, never committed.
 
 ## Tests
 
@@ -92,3 +120,14 @@ It checks that the sniffer agrees with the reference, that every decode
 matches, that an unchanged save is byte-identical both in place and laid out
 afresh, and that a one-pixel edit changes exactly one byte, inside that
 tile's diamond.
+
+The MIX corpus gate reads every archive of a NUL-separated list (with
+nesting), checks the indexes, the entry bounds and the checksums, and
+decodes and re-encodes every SHP and TMP entry; the name-list builder
+writes `data/mix-names.txt` from the stock archives and the local list from
+the rest (see `SHP-PLAN.md` section 7 for the recipe):
+
+```bash
+PICTURA_MIX_CORPUS_LIST=/path/mixlist0 \
+  cargo test -p pictura-shp --release --test mix_corpus -- --ignored --nocapture
+```

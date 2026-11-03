@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Westwood SHP (Tiberian Sun / Red Alert 2) sprites and .pal palettes: sniff, decode, byte-preserving encode"
+description = "Westwood SHP sprites, TMP terrain, .pal palettes and MIX archives (Tiberian Sun / Red Alert 2): sniff, decode, byte-preserving encode"
 
 [lib]
 doctest = false

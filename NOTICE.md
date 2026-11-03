@@ -65,4 +65,8 @@ The SHP support in `crates/pictura-shp` (a fork addition) is ported from
 Copyright (C) 2026 Ochre
 contributors, licensed under the **GNU General Public License v3 or later**,
 the same license as Kooka Pictura. Both are by the owner of this fork. No
-EA/Westwood game assets are included.
+EA/Westwood game assets are included. The MIX archive reader and writer
+(`crates/pictura-shp/src/mix/`) is new code written from public format
+descriptions (see that crate's README); its name list
+(`crates/pictura-shp/data/mix-names.txt`) holds only file names, read from
+the stock games' own archives.

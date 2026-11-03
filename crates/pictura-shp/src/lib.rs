@@ -23,11 +23,14 @@
 //! - [`tmp`] reads and writes TMP isometric terrain templates, keeping
 //!   every byte of a tile the edit did not touch; [`terrain`] lays a
 //!   template out as document layers and keeps its `KookaTMP` resource.
+//! - [`mix`] reads MIX archives (nested, encrypted, checksummed) and
+//!   writes a new one that copies untouched entries byte for byte.
 //!
 //! See `README.md` for the format sources.
 
 mod codec;
 pub mod frames;
+pub mod mix;
 pub mod palette;
 pub mod resource;
 pub mod sheet;
