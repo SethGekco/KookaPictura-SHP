@@ -1212,3 +1212,11 @@ TMP authoring (recorded as each piece landed; the OpenSpec change is
     without z-data, nothing else; 23,315 of the 23,348 original bytes are
     unchanged in place and 1,800 bytes are appended
     (`tmpedit-e2e.py edit`: EDIT OK).
+  - A second copy (`cliff03.tem`, vanilla, four tiles), its last tile (with
+    extra block and z-data) moved two cells by `(60, -30)` and an extra
+    block added to tile 0: EDIT OK too (13,534 of 13,568 bytes unchanged
+    in place, 1,800 appended). Through the rebuilt app after all three TMP
+    authoring items: an unchanged open+save is byte-identical for 301 of 301
+    sampled TMPs (`phase4-e2e.py`, peak 211 MB) and 321 of 321 sampled SHPs
+    (`phase2-e2e.py`, peak 3.8 GB as before); the self-test is 471 of 471
+    with a GPU and 470 passed, 1 skipped (`pp_gpu_commit`) on the CPU path.
