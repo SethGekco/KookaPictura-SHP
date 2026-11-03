@@ -794,9 +794,20 @@ Phase 3, unit tools (recorded as each piece landed):
   floored, then a zero byte) - the port of Ochre's `_average_colour`; empty
   frames keep their field (`unit::recompute_radar`). The request rides a
   thread-local set by the save gate and taken by that save
-  (`shp_set_save_radar`), like the open-palette request. The "in the file"
-  value stays the opened file's: after a recompute save, turning the
-  option off again saves the opened file's colors, not the recomputed ones.
+  (`shp_set_save_radar`), like the open-palette request. After a
+  successful save, what was written is the document's "in the file" value
+  (2026-11-02; at first it stayed the opened file's, so turning the option
+  off after a recompute save wrote the original colors back): the view keeps
+  the radar fields its last SHP save wrote (`unit::OnDisk`, the
+  `shp_on_disk` view field), keyed by the opened file's frame a frame came
+  from, or by its pixels for an added frame. A later save writes those
+  fields before any recompute, and the readout shows them. It is view
+  state, not document state, like the file on disk: saving is not an undo
+  step, so undo and redo leave it alone (an edit undone after a recompute
+  save keeps the field that save wrote). A document read from another file
+  finds the table stale by the opened file's size and header table and
+  ignores it (a revert reads the saved file, whose fields are then the
+  opened file's own).
 - **Palette kinds** (`palette::Kind`; Palette panel "Kind", per document,
   "Auto (x)" by the palette's name): unit (the default and the theater
   palettes: 0 transparent, 1 shadow, 16-31 house-color remap, 240-254

@@ -523,11 +523,16 @@ void ShpUnitTest::radarColorsAreKeptUnlessRecomputeIsOn()
     }
     QCOMPARE(masked, before);
     QVERIFY(after != before);
-    // The option is the document's; turning it off keeps the file's again.
+    // What was written is the document's file now: the readout shows it,
+    // and turning the option off keeps it instead of the opened file's.
+    const quint32 written = (quint32(quint8(after[8 + 24 + 12])) << 16)
+        | (quint32(quint8(after[8 + 24 + 13])) << 8) | quint8(after[8 + 24 + 14]);
+    QCOMPARE(pictura::shp_radar(*view, 1).file, written);
+    QVERIFY(written != 0x332211u);
     unit->recomputeRadar()->setChecked(false);
     const QString again = dir_.filePath(QStringLiteral("radar-again.shp"));
     QVERIFY(window_->saveActiveAs(again));
-    QCOMPARE(readFile(again), unitSprite());
+    QCOMPARE(readFile(again), after);
 }
 
 void ShpUnitTest::thePaletteKindDecidesRolesAndUnitTools()

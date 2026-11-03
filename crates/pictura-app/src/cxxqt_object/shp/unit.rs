@@ -21,7 +21,9 @@ use pictura_shp::resource::{encode_parts, origins, stored, stored_canvas};
 use pictura_shp::sheet::{gutter_pixels, reflow};
 use pictura_shp::unit::{self, ShadowParams, Use};
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{Hash, Hasher};
 
 fn rgb_of(px: &[u8; 4]) -> u32 {
     (u32::from(px[0]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[2])
@@ -515,14 +517,119 @@ pub(in crate::cxxqt_object) fn shp_set_save_radar(on: bool) {
     SAVE_RADAR.with(|r| r.set(on));
 }
 
-/// What Save writes: [`encode`], then, when asked, every drawn frame's radar
-/// color recomputed as the average of its pixels in the palette as read.
-/// Untouched, the radar fields are kept (the default).
+/// The radar fields the view's last SHP save wrote, so that they, not the
+/// opened file's, are the document's "in the file" values: a later save with
+/// "Recompute radar colors on save" off keeps them, and the readout shows
+/// them. View state, not document state: saving is not an edit, so undo and
+/// redo leave this alone, as they leave the file on disk alone.
+#[derive(Default)]
+pub(in crate::cxxqt_object) struct OnDisk {
+    /// Which opened file the keys refer to ([`original_key`]); a document
+    /// read from another file (a revert, say) finds the table stale.
+    original: u64,
+    radar: HashMap<FrameKey, [u8; 4]>,
+}
+
+/// A frame as the table knows it: the frame of the opened file it comes
+/// from, or, for an added frame, its pixels.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum FrameKey {
+    File(usize),
+    Added(u64),
+}
+
+/// The opened file's size and header table (where the radar fields live).
+fn original_key(original: &[u8]) -> u64 {
+    let table = 8 + 24 * resource::file_frames(original);
+    let mut hasher = DefaultHasher::new();
+    original.len().hash(&mut hasher);
+    original[..table.min(original.len())].hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Frame `frame`'s full-canvas index plane: from the sheet when it is in the
+/// window, else from the frame store or the original file.
+fn frame_plane(doc: &Document, header: &Header, block: &[u8], frame: usize) -> Vec<u8> {
+    if header.window().contains(&frame) {
+        return sheet_cell_plane(doc, header, frame - header.first);
+    }
+    let (w, h) = (header.layout.width, header.layout.height);
+    let Some((_, _, original)) = resource::parts(block) else {
+        return vec![0; w * h];
+    };
+    let stored = stored(block).unwrap_or_default();
+    let origin = origins(block).and_then(|o| o.get(frame).copied().flatten());
+    stored_or_original(original, &stored, origin, frame, w, h)
+}
+
+/// Each frame's key, or `None` when `doc` is not an SHP sheet.
+fn frame_keys(doc: &Document) -> Option<(u64, Vec<FrameKey>)> {
+    let block = block(doc)?;
+    let (header, _, original) = resource::parts(block)?;
+    let origins = origins(block)?;
+    let keys = (0..header.total)
+        .map(|f| match origins.get(f).copied().flatten() {
+            Some(j) => FrameKey::File(j),
+            None => {
+                let mut hasher = DefaultHasher::new();
+                frame_plane(doc, &header, block, f).hash(&mut hasher);
+                FrameKey::Added(hasher.finish())
+            }
+        })
+        .collect();
+    Some((original_key(original), keys))
+}
+
+impl OnDisk {
+    /// Record the radar fields of `bytes`, just written from `doc`.
+    pub(in crate::cxxqt_object) fn remember(&mut self, doc: &Document, bytes: &[u8]) {
+        *self = Self::default();
+        let Some((original, keys)) = frame_keys(doc) else {
+            return;
+        };
+        let written = usize::from(u16::from_le_bytes([bytes[6], bytes[7]]));
+        if written != keys.len() {
+            return;
+        }
+        self.original = original;
+        for (f, key) in keys.into_iter().enumerate() {
+            self.radar
+                .insert(key, pictura_shp::FrameHeader::read(bytes, f).radar);
+        }
+    }
+
+    /// The radar field last written for each of `doc`'s frames (`None` for
+    /// a frame not written since the file was opened).
+    fn fields(&self, doc: &Document) -> Vec<Option<[u8; 4]>> {
+        if self.radar.is_empty() {
+            return Vec::new();
+        }
+        match frame_keys(doc) {
+            Some((original, keys)) if original == self.original => keys
+                .iter()
+                .map(|key| self.radar.get(key).copied())
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// What Save writes: [`encode`] with each frame's radar field as the last
+/// save wrote it ([`OnDisk`]; the opened file's until then), then, when
+/// asked, every drawn frame's radar color recomputed as the average of its
+/// pixels in the palette as read.
 pub(in crate::cxxqt_object) fn encode_for_save(
     doc: &Document,
     recompute: bool,
+    on_disk: &OnDisk,
 ) -> Result<Vec<u8>, String> {
     let mut bytes = encode(doc)?;
+    for (f, field) in on_disk.fields(doc).into_iter().enumerate() {
+        if let Some(field) = field {
+            let at = 8 + 24 * f + 12;
+            bytes[at..at + 4].copy_from_slice(&field);
+        }
+    }
     if recompute {
         let header = header(doc).ok_or("This document is not an SHP sheet.")?;
         unit::recompute_radar(&mut bytes, &header.palette);
@@ -578,9 +685,14 @@ fn sheet_cell_plane(doc: &Document, header: &Header, cell: usize) -> Vec<u8> {
     out
 }
 
-/// Frame `frame`'s radar color as the file has it (its original frame's
-/// field; none for an added frame) and the average of its pixels now.
-pub(in crate::cxxqt_object) fn radar_info(doc: &Document, frame: usize) -> ShpRadar {
+/// Frame `frame`'s radar color as the file has it (the field the last save
+/// wrote, else its original frame's; none for an added frame not saved yet)
+/// and the average of its pixels now.
+pub(in crate::cxxqt_object) fn radar_info(
+    doc: &Document,
+    frame: usize,
+    on_disk: &OnDisk,
+) -> ShpRadar {
     let mut out = ShpRadar {
         has_file: false,
         file: 0,
@@ -600,18 +712,15 @@ pub(in crate::cxxqt_object) fn radar_info(doc: &Document, frame: usize) -> ShpRa
         return out;
     }
     let pack = |[r, g, b]: [u8; 3]| (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
-    if let Some(j) = origins[frame].filter(|_| !original.is_empty()) {
-        let radar = pictura_shp::FrameHeader::read(original, j).radar;
+    let written = on_disk.fields(doc).get(frame).copied().flatten();
+    let opened = origins[frame]
+        .filter(|_| !original.is_empty())
+        .map(|j| pictura_shp::FrameHeader::read(original, j).radar);
+    if let Some(radar) = written.or(opened) {
         out.has_file = true;
         out.file = pack([radar[0], radar[1], radar[2]]);
     }
-    let (w, h) = (header.layout.width, header.layout.height);
-    let plane = if header.window().contains(&frame) {
-        sheet_cell_plane(doc, &header, frame - header.first)
-    } else {
-        let stored = stored(block).unwrap_or_default();
-        stored_or_original(original, &stored, origins[frame], frame, w, h)
-    };
+    let plane = frame_plane(doc, &header, block, frame);
     if let Some(avg) = unit::average_color(&plane, &header.palette) {
         out.has_average = true;
         out.average = pack(avg);
@@ -620,8 +729,9 @@ pub(in crate::cxxqt_object) fn radar_info(doc: &Document, frame: usize) -> ShpRa
 }
 
 pub(in crate::cxxqt_object) fn shp_radar(view: &PictureView, frame: i32) -> ShpRadar {
-    match (view.rust().session.doc.as_ref(), usize::try_from(frame)) {
-        (Some(doc), Ok(frame)) => radar_info(doc, frame),
+    let rust = view.rust();
+    match (rust.session.doc.as_ref(), usize::try_from(frame)) {
+        (Some(doc), Ok(frame)) => radar_info(doc, frame, &rust.shp_on_disk),
         _ => ShpRadar {
             has_file: false,
             file: 0,

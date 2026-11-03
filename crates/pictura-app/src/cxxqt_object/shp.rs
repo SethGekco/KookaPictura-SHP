@@ -21,7 +21,7 @@ mod imp;
 use super::qobject::PictureView;
 use imp::*;
 pub(in crate::cxxqt_object) use imp::{
-    decode_shp, save_shp, with_document_palette, with_open_request, OpenRequest,
+    decode_shp, save_shp, with_document_palette, with_open_request, OnDisk, OpenRequest,
 };
 
 #[cxx_qt::bridge]

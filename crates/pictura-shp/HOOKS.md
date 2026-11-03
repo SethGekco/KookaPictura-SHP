@@ -12,7 +12,7 @@ files Kooka Pictura upstream also changes; check them first after
 | `crates/pictura-app/Cargo.toml` | the `pictura-shp` path dependency |
 | `crates/pictura-app/build.rs` | `src/cxxqt_object/shp.rs` in the bridge file list |
 | `crates/pictura-app/src/cxxqt_object.rs` | `mod shp;` |
-| `crates/pictura-app/src/cxxqt_object/state.rs` | the `shp_open` field (`Option<shp::OpenRequest>`: palette and size-limit allowance) and its `None` default |
+| `crates/pictura-app/src/cxxqt_object/state.rs` | the `shp_open` field (`Option<shp::OpenRequest>`: palette and size-limit allowance) and its `None` default; the `shp_on_disk` field (`shp::OnDisk`: the radar fields the last SHP save wrote) and its default |
 | `crates/pictura-app/src/cxxqt_object/open_jobs/imp.rs` | `decode_image_with_options`: `shp::decode_shp` right after the file is read, before `decode_import` (so it wins over an installed Qt SHP plugin and skips `finalize_import`); `open_image_start`: takes `shp_open` and runs the decode inside `shp::with_open_request` |
 | `crates/pictura-app/src/cxxqt_object/impl_core.rs` | `revert`: the decode runs inside `shp::with_document_palette`, so a reverted SHP keeps its palette |
 | `crates/pictura-app/src/cxxqt_object/impl_core/save.rs` | `save`: an `shp` suffix goes to `shp::save_shp` before the native fallback |

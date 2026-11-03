@@ -3,7 +3,7 @@
 //! generating and clearing, the added shadow half, undo, and saved bytes.
 
 use super::tests::{choice, doc, frame_bytes, opened, planes, roomy, sprite, FRAMES, H, W};
-use super::unit::{clear_rust, encode_for_save, frame_uses, generate_rust, radar_info};
+use super::unit::{clear_rust, encode_for_save, frame_uses, generate_rust, radar_info, OnDisk};
 use super::window_tests::{head, paged, paint, small};
 use super::*;
 use crate::history::History;
@@ -239,8 +239,11 @@ fn pack(c: [u8; 3]) -> u32 {
 fn save_keeps_the_radar_colors_unless_asked_to_recompute_them() {
     let file = sprite();
     let mut rust = opened(file.clone(), choice());
-    assert_eq!(encode_for_save(doc(&rust), false).unwrap(), file);
-    let recomputed = encode_for_save(doc(&rust), true).unwrap();
+    assert_eq!(
+        encode_for_save(doc(&rust), false, &OnDisk::default()).unwrap(),
+        file
+    );
+    let recomputed = encode_for_save(doc(&rust), true, &OnDisk::default()).unwrap();
     assert_eq!(recomputed.len(), file.len());
     for (k, plane) in planes().iter().enumerate() {
         let want = average_color(plane, &choice().palette).expect("drawn");
@@ -252,7 +255,7 @@ fn save_keeps_the_radar_colors_unless_asked_to_recompute_them() {
         assert_eq!((&h[..12], &h[16..], d), (&fh[..12], &fh[16..], fd));
     }
     // The readout: the file's field and the average now, which follows an edit.
-    let info = radar_info(doc(&rust), 3);
+    let info = radar_info(doc(&rust), 3, &OnDisk::default());
     let field = FrameHeader::read(&file, 3).radar;
     assert!(info.has_file && info.has_average);
     assert_eq!(info.file, pack([field[0], field[1], field[2]]));
@@ -264,8 +267,80 @@ fn save_keeps_the_radar_colors_unless_asked_to_recompute_them() {
     let mut edited = planes()[3].clone();
     edited[0] = 200;
     assert_eq!(
-        radar_info(doc(&rust), 3).average,
+        radar_info(doc(&rust), 3, &OnDisk::default()).average,
         pack(average_color(&edited, &choice().palette).unwrap())
+    );
+}
+
+#[test]
+fn a_recompute_save_becomes_the_radar_in_the_file() {
+    let file = sprite();
+    let mut rust = opened(file.clone(), choice());
+    let mut on_disk = OnDisk::default();
+    let redone = encode_for_save(doc(&rust), true, &on_disk).unwrap();
+    assert_ne!(redone, file);
+    on_disk.remember(doc(&rust), &redone);
+    // Off again: the recomputed fields stay; every other byte is the file's.
+    assert_eq!(
+        encode_for_save(doc(&rust), false, &on_disk).unwrap(),
+        redone
+    );
+    let field = FrameHeader::read(&redone, 3).radar;
+    assert_ne!(field, FrameHeader::read(&file, 3).radar);
+    let info = radar_info(doc(&rust), 3, &on_disk);
+    assert!(info.has_file);
+    assert_eq!(info.file, pack([field[0], field[1], field[2]]));
+
+    // An edit after the save keeps the field on disk; untouched frames are
+    // byte-identical to the saved file.
+    paint(&mut rust, 3, 0, 0, 200);
+    let edited = encode_for_save(doc(&rust), false, &on_disk).unwrap();
+    assert_eq!(FrameHeader::read(&edited, 3).radar, field);
+    for k in (0..FRAMES).filter(|&k| k != 3) {
+        same_frame(&edited, &redone, k);
+    }
+    // Saving is not an edit: undo leaves what is on disk alone.
+    undo(&mut rust);
+    assert_eq!(
+        encode_for_save(doc(&rust), false, &on_disk).unwrap(),
+        redone
+    );
+
+    // A document read from another file finds the table stale.
+    let mut other = file.clone();
+    other[8 + 24 * 3 + 12..8 + 24 * 3 + 16].copy_from_slice(&[1, 2, 3, 0]);
+    let reread = opened(other.clone(), choice());
+    assert_eq!(
+        encode_for_save(doc(&reread), false, &on_disk).unwrap(),
+        other
+    );
+    assert_eq!(radar_info(doc(&reread), 3, &on_disk).file, 0x010203);
+}
+
+#[test]
+fn an_added_frame_keeps_the_radar_it_was_saved_with() {
+    let mut rust = opened(sprite(), choice());
+    whole_op_rust(
+        &mut rust,
+        pictura_shp::frames::FrameOp::Insert { at: 0, count: 1 },
+        &roomy(),
+        0,
+    )
+    .expect("inserts");
+    paint(&mut rust, 0, 2, 2, 200);
+    let mut on_disk = OnDisk::default();
+    assert!(!radar_info(doc(&rust), 0, &on_disk).has_file);
+    let redone = encode_for_save(doc(&rust), true, &on_disk).unwrap();
+    let field = FrameHeader::read(&redone, 0).radar;
+    assert_ne!(field, [0; 4]);
+    on_disk.remember(doc(&rust), &redone);
+    assert_eq!(
+        encode_for_save(doc(&rust), false, &on_disk).unwrap(),
+        redone
+    );
+    assert_eq!(
+        radar_info(doc(&rust), 0, &on_disk).file,
+        pack([field[0], field[1], field[2]])
     );
 }
 
@@ -273,7 +348,7 @@ fn save_keeps_the_radar_colors_unless_asked_to_recompute_them() {
 fn the_radar_readout_reads_frames_off_a_paged_sheet_and_added_frames() {
     let file = sprite();
     let rust = paged(&file);
-    let info = radar_info(doc(&rust), 8);
+    let info = radar_info(doc(&rust), 8, &OnDisk::default());
     assert!(!head(&rust).window().contains(&8));
     let field = FrameHeader::read(&file, 8).radar;
     assert_eq!(info.file, pack([field[0], field[1], field[2]]));
@@ -290,7 +365,7 @@ fn the_radar_readout_reads_frames_off_a_paged_sheet_and_added_frames() {
         0,
     )
     .expect("inserts");
-    let added = radar_info(doc(&whole), 0);
+    let added = radar_info(doc(&whole), 0, &OnDisk::default());
     assert!(!added.has_file && !added.has_average);
 }
 

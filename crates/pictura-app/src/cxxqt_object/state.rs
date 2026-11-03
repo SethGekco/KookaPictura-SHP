@@ -93,6 +93,8 @@ pub struct PictureViewRust {
     /// and size allowance (taken by `open_image_start`; set by
     /// `shp_set_open_palette` / `shp_set_open_allowance`).
     pub(super) shp_open: Option<super::shp::OpenRequest>,
+    /// The radar fields this view's last SHP save wrote (`shp::save_shp`).
+    pub(super) shp_on_disk: super::shp::OnDisk,
     /// The last Embed Color Profile choice accepted for this document.
     pub(super) save_embed_profile: Option<bool>,
     /// The raster format options the next save of this document uses, set by the
@@ -230,6 +232,7 @@ impl Default for PictureViewRust {
             picker_choice: 0,
             open_policy_override: None,
             shp_open: None,
+            shp_on_disk: Default::default(),
             save_embed_profile: None,
             save_raster_options: None,
             damage: CanvasDamage::default(),
