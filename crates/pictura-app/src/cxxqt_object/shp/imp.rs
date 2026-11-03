@@ -45,7 +45,8 @@ impl PaletteChoice {
         if path.is_empty() {
             return None;
         }
-        let bytes = read_capped(path, 1 << 20)?;
+        // A loose .pal, or one inside a MIX (`ra2.mix/cache.mix/unittem.pal`).
+        let bytes = mix::read_small(path, 1 << 20)?;
         let mut palette = read_palette(&bytes)?;
         palette.name = Path::new(path)
             .file_name()
@@ -1058,6 +1059,12 @@ pub(in crate::cxxqt_object) fn save_westwood(
     save_shp(view, path)
 }
 
+#[path = "mix.rs"]
+mod mix;
+pub(super) use mix::{
+    mix_extract, mix_find, mix_find_prefix, mix_list, mix_path_exists, mix_replace, mix_sniff_file,
+};
+
 #[path = "authoring.rs"]
 mod authoring;
 pub(super) use authoring::{shp_convert, shp_new_document, shp_plan_sheet};
@@ -1085,3 +1092,7 @@ mod unit_tests;
 #[cfg(test)]
 #[path = "tmp_tests.rs"]
 mod tmp_tests;
+
+#[cfg(test)]
+#[path = "mix_tests.rs"]
+mod mix_tests;

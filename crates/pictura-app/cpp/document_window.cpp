@@ -1,6 +1,7 @@
 #include "document_window.h"
 
 #include "image_view.h"
+#include "mix_support.h"
 
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/image_adjust/image_mode.cxxqt.h"
@@ -38,6 +39,10 @@ QString modeLabel(const QString& mode)
 
 QString documentDisplayName(const DocEntry& doc)
 {
+    // KookaPictura-SHP fork: an entry opened from a MIX reads "gi.shp in ra2.mix".
+    if (isMixMember(doc.path)) {
+        return mixMemberTitle(doc.path);
+    }
     if (!doc.displayName.isEmpty()) {
         return doc.displayName;
     }

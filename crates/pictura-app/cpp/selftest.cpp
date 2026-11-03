@@ -3445,8 +3445,8 @@ int runSelfTest(QApplication& app, bool headless, const QString& psdPath,
                                    QStringLiteral("Performance"), QStringLiteral("Units & Rulers"),
                                    QStringLiteral("Guides, Grid, & Slices"),
                                    QStringLiteral("Type"),
-                                   // KookaPictura-SHP fork: the SHP size limit.
-                                   QStringLiteral("Advanced")});
+                                   // KookaPictura-SHP fork: SHP size limit, MIX palettes.
+                                   QStringLiteral("Advanced"), QStringLiteral("MIX Archives")});
         prefsOpen = openedGeneral && openedInterface;
         if (prefs) {
             auto* prefsToolbox = frame.findChild<pictura::Toolbox*>(QStringLiteral("toolsPanel"));

@@ -18,6 +18,7 @@
 #include "pictura_app/src/cxxqt_object/open_jobs.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/pdf_export/import.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
+#include "mix_support.h"
 #include "shp_palettes.h"
 #include "shp_support.h"
 
@@ -566,8 +567,10 @@ quint64 PicturaMainWindow::startOpenImagePath(const QString& path)
     }
     beginOpenCursor();
     cursorTokens_.insert(token);
-    beginLoadingDocument(view, path, QFileInfo(path).fileName(), token, path,
-                         OpenKind::Raster);
+    // KookaPictura-SHP fork: an entry extracted from a MIX is titled "x.shp in
+    // ra2.mix" and stays out of Open Recent (its file is temporary).
+    beginLoadingDocument(view, path, mixMemberTitle(path), token,
+                         isMixMember(path) ? QString() : path, OpenKind::Raster);
     if (shp_sniff_file(path)) {
         shp_set_open_palette(*view, resolveShpPalette(path));
     } else if (tmp_sniff_file(path)) { // KookaPictura-SHP fork: TMP terrain
@@ -611,6 +614,12 @@ bool PicturaMainWindow::saveRunsOnWorker(const QString& path)
 quint64 PicturaMainWindow::startOpenDocumentAtPath(const QString& path, bool interactive,
                                                    bool reportFailure)
 {
+    // KookaPictura-SHP fork: a MIX archive opens in the MIX browser, not as a
+    // document.
+    if (MixSupport* mix = MixSupport::of(this); mix && isMixPath(path)) {
+        mix->openArchive(path);
+        return 0;
+    }
     const QString kind(vector_sniff(path));
     quint64 token = 0;
     if (kind == QStringLiteral("pdf") || isPdfPath(path)) {

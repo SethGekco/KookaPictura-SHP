@@ -5,6 +5,7 @@
 #include "agent_control.h"
 #include "api/type_api.h"
 #include "preferences_agent_page.h"
+#include "mix_support.h"
 #include "shp_support.h"
 
 namespace pictura {
@@ -59,6 +60,10 @@ void PicturaMainWindow::showPreferences(const QString& page)
         // KookaPictura-SHP fork: Advanced (the SHP size limit, until Kooka closes).
         if (auto* shp = ShpSupport::of(this)) {
             preferencesDialog_->addPage(tr("Advanced"), shp->advancedPage(preferencesDialog_));
+        }
+        // KookaPictura-SHP fork: MIX archives searched for palettes.
+        if (auto* mix = MixSupport::of(this)) {
+            preferencesDialog_->addPage(tr("MIX Archives"), mix->palettePage(preferencesDialog_));
         }
         connectRecoveryPreferences(preferencesDialog_);
         connectGuidePreferences(preferencesDialog_);

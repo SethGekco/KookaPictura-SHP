@@ -278,7 +278,7 @@ const QStringList& openFileFilters()
     static const QStringList filters = {
         QStringLiteral("All Formats (*.PSD *.PSB *.PNG *.JPG *.JPEG *.JPE *.GIF *.BMP "
                        "*.TIF *.TIFF *.WEBP *.PDF *.PDP *.AI *.EPS *.EPSF *.PS *.SHP *.TEM *.SNO "
-                       "*.URB *.UBN *.DES *.LUN *.TMP)"),
+                       "*.URB *.UBN *.DES *.LUN *.TMP *.MIX)"),
         QStringLiteral("Photoshop (*.PSD)"),
         QStringLiteral("Photoshop Large Format (*.PSB)"),
         QStringLiteral("PNG (*.PNG)"),
@@ -295,6 +295,8 @@ const QStringList& openFileFilters()
         // suffixes; the content decides which opens.
         QStringLiteral("Westwood TMP terrain and theater SHP (*.TEM *.SNO *.URB *.UBN *.DES "
                        "*.LUN *.TMP)"),
+        // KookaPictura-SHP fork: an archive opens in the MIX browser.
+        QStringLiteral("Westwood MIX archive (*.MIX)"),
         QStringLiteral("All files (*)"),
     };
     return filters;

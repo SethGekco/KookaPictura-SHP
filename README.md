@@ -68,6 +68,19 @@ effect art directly.
   outside the tiles are caught first (Snap, Clip or Show Me). Checked
   against 2,745 real templates: every one saves back byte-identical (see
   [`SHP-PLAN.md`](SHP-PLAN.md)).
+  MIX archives (`ra2.mix`, `expandmd01.mix` and the archives nested in
+  them; TD/RA1 and RA/TS/RA2 layouts, encrypted and checksummed indexes)
+  open from File > Open in a MIX browser: a tree of every entry with its
+  name (or ID when no name list knows it), the kind told from its content,
+  size and ID, and a filter box. Double-click an SHP or TMP to edit it (the
+  tab reads "gi.shp in ra2.mix"); Save then asks whether to save a loose
+  file or write a copy of the archive with the entry replaced (the archive
+  itself is only written after a confirmation that names it, and copies are
+  written without encryption). Entries export to a folder. Palettes are
+  found inside archives too (`unittem.pal`, `isotem.pal`): the archive a
+  file came from, the open archives, and the archives or game folders
+  listed in Edit > Preferences > MIX Archives. Checked against 681 real
+  archive files: every SHP and TMP inside them saves back byte-identical.
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
   opens SHPs as sprite sheets (a small converter saves them back). Do not

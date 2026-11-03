@@ -3,6 +3,8 @@
 
 #include "shp_palettes.h"
 
+#include "mix_support.h"
+
 #include <QtCore/QDir>
 #include <QtCore/QDirIterator>
 #include <QtCore/QFileInfo>
@@ -19,7 +21,9 @@ constexpr int kMaxPalettesScanned = 4000;
 
 QString folderKey(const QString& shpPath, bool terrain = false)
 {
-    const QFileInfo info(shpPath);
+    // KookaPictura-SHP fork: an entry from a MIX keys by its archive, not by
+    // the temporary folder it was extracted to.
+    const QFileInfo info(isMixMember(shpPath) ? mixOrigin(shpPath).archive : shpPath);
     const QString dir = info.absoluteDir().canonicalPath().isEmpty()
                             ? info.absolutePath()
                             : info.absoluteDir().canonicalPath();
@@ -27,9 +31,10 @@ QString folderKey(const QString& shpPath, bool terrain = false)
         + QString::fromLatin1(QUrl::toPercentEncoding(dir));
 }
 
+// A file, or (KookaPictura-SHP fork) an entry inside a MIX archive.
 QString existingFile(const QString& path)
 {
-    return !path.isEmpty() && QFileInfo(path).isFile() ? path : QString();
+    return palettePathExists(path) ? path : QString();
 }
 
 } // namespace
@@ -81,7 +86,17 @@ QString resolveShpPalette(const QString& shpPath)
     if (!best.isEmpty()) {
         return best;
     }
-    return existingFile(defaultShpPalette());
+    // KookaPictura-SHP fork: then the MIX archives (the one the sprite came
+    // from, the open ones, Preferences > MIX Archives): the same prefix rule,
+    // then the default palette, then the game's unittem.pal.
+    const QStringList archives = paletteArchives(shpPath);
+    if (const QString inside = findPalettePrefixInArchives(archives, stem); !inside.isEmpty()) {
+        return inside;
+    }
+    if (const QString chosen = existingFile(defaultShpPalette()); !chosen.isEmpty()) {
+        return chosen;
+    }
+    return findInArchives(archives, QStringLiteral("unittem.pal"));
 }
 
 void rememberFolderPalette(const QString& shpPath, const QString& palettePath, bool terrain)
@@ -144,6 +159,12 @@ QString resolveTmpPalette(const QString& tmpPath)
                     return pal.absoluteFilePath();
                 }
             }
+        }
+        // KookaPictura-SHP fork: then isotem.pal (and so on) inside the MIX
+        // archives.
+        if (const QString inside = findInArchives(paletteArchives(tmpPath), wanted);
+            !inside.isEmpty()) {
+            return inside;
         }
     }
     const QString fallback = existingFile(defaultShpPalette());

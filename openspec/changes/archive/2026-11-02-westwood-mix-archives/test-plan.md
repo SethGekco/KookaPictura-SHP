@@ -1,0 +1,24 @@
+# Test Plan
+
+One row per scenario in the spec delta. Coverage names an automated test, or
+`manual:` with the reason it cannot be automated.
+
+| Scenario | Steps | Expected result | Coverage |
+|---|---|---|---|
+| `mix_codec_layouts` | Build old-layout, new-layout and checksummed archives, read them | Entries as written, checksum verifies | `pictura-shp::an_old_format_archive_reads`, `pictura-shp::an_unencrypted_archive_reads_and_rebuilds_byte_identical`, `pictura-shp::a_checksummed_archive_verifies_and_keeps_its_checksum_on_write` |
+| `mix_codec_encrypted` | Encrypt an index under a test RSA key pair (`tests/mix.rs` TEST_N/TEST_D), read it | Index decrypts; key recovery equals a Python known answer; the Westwood key reads 80-byte sources | `pictura-shp::an_encrypted_archive_reads_with_its_key_and_writes_unencrypted`, `pictura-shp::the_key_recovery_matches_another_implementation`, `pictura-shp::the_westwood_key_is_319_bits_and_reads_80_bytes` |
+| `mix_codec_primitives` | Run the published vectors and known name/ID pairs | Published values | `pictura-shp::blowfish_matches_published_vectors`, `pictura-shp::crc32_and_sha1_match_their_check_values`, `pictura-shp::ts_ids_match_names_found_in_the_stock_archives`, `pictura-shp::td_ids_rotate_and_add` |
+| `mix_codec_nested` | Scan nested generated archives; read member paths | Kinds per level; member paths read | `pictura-shp::nested_archives_scan_with_kinds`, `pictura-shp::member_paths_read_through_nesting` |
+| `mix_codec_damaged` | Point an entry past the end; store a 1-3 px wide sprite | Broken, plan refused; the sprite stays an SHP | `pictura-shp::entries_outside_the_archive_are_broken_and_refuse_a_plan`, `pictura-shp::small_sprites_are_not_taken_for_archives` |
+| `mix_codec_corpus` | `PICTURA_MIX_CORPUS_LIST=~/Claude/shp-corpus/mixlist0`, ignored test, release | Every archive parses, SHP/TMP entries identical (numbers in SHP-PLAN.md section 7) | `pictura-shp::every_real_archive_parses_and_its_sprites_save_unchanged` |
+| `mix_write_roundtrip` | Write an unencrypted and an encrypted archive back | Identical; unencrypted with the same entries | `pictura-shp::an_unencrypted_archive_reads_and_rebuilds_byte_identical`, `pictura-shp::an_encrypted_archive_reads_with_its_key_and_writes_unencrypted` |
+| `mix_write_replace` | Replace an entry two archives deep, in Rust and through the app glue | New bytes there, the rest unchanged, the source untouched | `pictura-shp::replacing_a_nested_entry_rebuilds_only_its_chain`, `pictura-app::replacing_writes_a_new_archive_and_leaves_the_source_alone`, `pictura-app::replacing_in_place_goes_through_a_partial_file` |
+| `mix_names_sources` | Name entries from an LMD, an art INI and a list; list a generated archive in the app | Names applied, misfits refused, unnamed by ID | `pictura-shp::names_come_from_lmds_inis_and_lists`, `pictura-app::a_listing_names_kinds_and_nests_the_entries` |
+| `mix_names_build` | `PICTURA_MIX_CORPUS_LIST`, `PICTURA_MIX_STOCK_DIR`, ignored builder | `data/mix-names.txt` and the local list written | `pictura-shp::build_the_name_lists` |
+| `mix_shell_browser` | Open a generated archive, filter, open a damaged file | Tree, kinds, IDs, filter counts, error | `tst_mix::openingAnArchiveListsItInTheBrowser`, `tst_mix::theFilterNarrowsTheRows`, `tst_mix::aBrokenArchiveSaysWhy`, `tst_mix::theOpenFiltersOfferMix`, `pictura-app::a_file_that_is_no_archive_lists_an_error` |
+| `mix_shell_open` | Open gi.shp, the unnamed SHP, clear01.tem, isotem.pal | Titles; the palette refused | `tst_mix::anEntryOpensTitledWithItsArchive`, `tst_mix::onlySpritesAndTemplatesOpen`, `pictura-app::entries_extract_byte_for_byte_and_a_bad_chain_says_why` |
+| `mix_shell_save` | Save: Cancel, Save As Loose File, Replace in a Copy; save without dialogs | As specified | `tst_mix::saveAsksAndDefaultsToALooseFile`, `tst_mix::saveAsLooseFileDropsTheArchiveFromTheTitle`, `tst_mix::replaceInACopyLeavesTheArchiveAlone`, `tst_mix::saveFromAnArchiveIsRefusedWithoutDialogs` |
+| `mix_shell_in_place` | Replace into the archive itself: Cancel, Replace, no dialogs | As specified | `tst_mix::replacingInPlaceNeedsAConfirmationNamingTheFile` |
+| `mix_shell_export` | Export two entries and a nested archive twice | Byte-identical files, `(2)` on the second | `tst_mix::exportWritesTheSelectedEntries` |
+| `mix_palette_from_archive` | Open gi.shp and clear01.tem from the archive | `unittem.pal`, `isotem.pal` from inside it | `tst_mix::aSpriteFromAnArchiveFindsItsPaletteThere`, `tst_mix::aTemplateFromAnArchiveFindsItsTheaterPalette`, `pictura-app::a_palette_loads_from_inside_an_archive` |
+| `mix_palette_preferences` | Resolve loose files' palettes with a Preferences folder, without it, with the archive open | As specified | `tst_mix::preferencesListArchivesForLoosePalettes`, `pictura-app::palettes_are_found_by_name_and_by_prefix_through_nesting` |

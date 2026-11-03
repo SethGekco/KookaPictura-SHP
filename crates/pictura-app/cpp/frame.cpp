@@ -12,6 +12,7 @@
 #include "panels/numeric_field.h"
 #include "pictura_debug_timing.h"
 #include "screen_mode_message.h"
+#include "mix_support.h"
 #include "shp_support.h"
 #include "text_input.h"
 #include "pictura_app/src/cxxqt_object/color_management.cxxqt.h"
@@ -547,6 +548,10 @@ bool PicturaMainWindow::saveActive()
         return true;
     }
     QString path = docs_.at(index)->path;
+    // KookaPictura-SHP fork: an entry opened from a MIX asks where it goes.
+    if (MixSupport* mix = MixSupport::of(this); mix && isMixMember(path)) {
+        return mix->saveMember(view);
+    }
     if (!path.isEmpty() && isPdfPath(path)) {
         const bool saved = savePdfWithDialog(path);
         if (saved) {
@@ -592,6 +597,10 @@ bool PicturaMainWindow::saveActiveAs(const QString& path)
         : document_api::save(*view, path);
     if (!saved) {
         return false;
+    }
+    // KookaPictura-SHP fork: saved out of its MIX, the title drops "in x.mix".
+    if (isMixMember(docs_[index]->path) && docs_[index]->path != path) {
+        docs_[index]->displayName.clear();
     }
     docs_[index]->path = path;
     // A stale save leaves the document modified; keep the recovery snapshot so

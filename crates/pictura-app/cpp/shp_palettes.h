@@ -13,8 +13,11 @@ namespace pictura {
 //   3. among the .pal files under the palette folders (recursive), the one
 //      with the longest stem that starts the SHP's stem (isotem.pal for
 //      isotem_bridge.shp);
-//   4. the default palette;
-//   5. none: the built-in grey fallback (an empty string).
+//   4. the same rule over the .pal entries of the MIX archives (see
+//      paletteArchives in mix_support.h);
+//   5. the default palette;
+//   6. unittem.pal inside those archives;
+//   7. none: the built-in grey fallback (an empty string).
 // A wrong guess costs nothing: indices are kept, and the Palette panel
 // rebinds in one undoable step. The choices live in
 // $XDG_STATE_HOME/kooka-pictura/shp.ini, beside the session store.
@@ -26,7 +29,8 @@ QString resolveShpPalette(const QString& shpPath);
 //      from the SHP one, since a theater folder holds both);
 //   2. a .pal beside it with the same stem;
 //   3. iso<suffix>.pal (isotem.pal for a .tem, isosno.pal for a .sno, ...)
-//      beside it, then under the palette folders (recursive, any case);
+//      beside it, then under the palette folders (recursive, any case),
+//      then inside the MIX archives (see paletteArchives in mix_support.h);
 //   4. the default palette, when its name starts with "iso";
 //   5. none: the built-in grey fallback.
 QString resolveTmpPalette(const QString& tmpPath);

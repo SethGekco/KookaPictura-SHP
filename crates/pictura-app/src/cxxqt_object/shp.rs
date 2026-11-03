@@ -214,6 +214,34 @@ pub mod ffi {
         extra_layer: i32,
     }
 
+    /// One entry of a listed MIX archive (a row of the MIX browser).
+    #[namespace = "pictura"]
+    struct MixRow {
+        /// The row of the nested archive holding it; -1 for an entry of the
+        /// archive itself.
+        parent: i32,
+        id: u32,
+        /// Empty when no name list knows the ID.
+        name: QString,
+        /// "SHP", "TMP", "PAL", "MIX", "INI", ... (told from the content).
+        kind: QString,
+        /// A file suffix for the kind (`shp`; `bin` for unknown data).
+        suffix: QString,
+        size: u64,
+        /// The IDs from the archive's own index down to this entry.
+        chain: Vec<u32>,
+    }
+
+    /// A listed MIX archive.
+    #[namespace = "pictura"]
+    struct MixListing {
+        /// Why it could not be read; empty when it was.
+        error: QString,
+        /// Its layout, encryption and checksum, for the browser.
+        format: QString,
+        rows: Vec<MixRow>,
+    }
+
     #[namespace = "pictura"]
     extern "Rust" {
         /// True when `path` holds a TS/RA2 SHP (the whole frame table checks
@@ -495,6 +523,37 @@ pub mod ffi {
         /// Test seam: the size limit and available memory in bytes (0 keeps
         /// the real value).
         fn shp_set_test_limits(limit: u64, available: u64);
+
+        /// True when the file at `path` is a MIX archive.
+        fn mix_sniff_file(path: &QString) -> bool;
+
+        /// Every entry of the MIX at `path` and of the archives nested in
+        /// it, depth first, with names and kinds. Reads the index and the
+        /// first bytes of each entry, never a whole entry but INI files
+        /// that name others.
+        fn mix_list(path: &QString) -> MixListing;
+
+        /// Copy the entry `chain` names out of the MIX at `path` into the
+        /// file `out`; false with the reason in `shp_last_error`.
+        fn mix_extract(path: &QString, chain: &[u32], out: &QString) -> bool;
+
+        /// Write a copy of the MIX at `path` to `out` with the entry `chain`
+        /// names replaced by the file `entry` (the archives on the chain
+        /// unencrypted; everything else byte for byte), through a partial
+        /// file renamed when complete. False with the reason.
+        fn mix_replace(path: &QString, chain: &[u32], entry: &QString, out: &QString) -> bool;
+
+        /// The member path (`ra2.mix/cache.mix/unittem.pal`) of the first
+        /// entry called `name` in the MIX at `path` or a named archive
+        /// nested in it, shallowest first; empty when there is none.
+        fn mix_find(path: &QString, name: &QString) -> QString;
+
+        /// The member path of the entry ending in `suffix` whose stem is the
+        /// longest one starting `stem`; empty when there is none.
+        fn mix_find_prefix(path: &QString, stem: &QString, suffix: &QString) -> QString;
+
+        /// A file, or an entry inside a MIX, exists at `path`.
+        fn mix_path_exists(path: &QString) -> bool;
 
         /// The measured real footprint per byte of sheet.
         fn shp_footprint_factor() -> u64;

@@ -977,3 +977,107 @@ Phase 4, TMP terrain (recorded as each piece landed; the OpenSpec change is
   moving a tile, or the template's grid and tile size. Land and ramp are
   stored as numbers; the panel's names are a reading aid (several land
   numbers share one name).
+
+MIX archives (recorded as each piece landed; the OpenSpec change is
+`openspec/changes/archive/2026-11-02-westwood-mix-archives`):
+
+- **Where it lives.** A `mix` module of `crates/pictura-shp`, not a new
+  crate: entry kinds come from the SHP and TMP sniffers already there, and
+  the crate stays dependency-free. Blowfish (tables computed from pi),
+  SHA-1, CRC-32 and the RSA step (a small big-integer `pow_mod`) are written
+  from their published definitions; the key-recovery procedure follows the
+  descriptions in XCC's `mix_decode.cpp` and OpenRA's
+  `BlowfishKeyProvider.cs`, cited in `src/mix/key.rs`; no code is vendored.
+- **The corpus.** `find "<root>" -type f -iname '*.mix' -print0 >
+  ~/Claude/shp-corpus/mixlist0` (2026-11-02), with `<root>` the one folder
+  of `shplist0` (`/mnt/wwn-0x50014ee6b383afb8-part1/(3) Games Data/RA2 &
+  Yuri's Revenge`): 681 files, 22.7 GB, stock installs and mods.
+- **Encryption, as measured.** Westwood's public modulus is 319 bits, so a
+  key-source block is 40 bytes and gives 39; the first 56 of the 78 bytes
+  are the Blowfish key (`(bits - 2) / 8 = 39` holds for the test key too).
+  The stock `ra2.mix`, `ra2md.mix` and `language.mix` (flags `0x30000`:
+  encrypted and checksummed) decrypt to indexes that account for every
+  byte, and their SHA-1 checksums match, which proves the real key end to
+  end. The unit tests use a 320-bit key pair of their own (in
+  `tests/mix.rs`; Westwood's private key is not public) and a known-answer
+  vector from an independent Python implementation.
+- **The checksum** covers the body only and follows it (20 bytes). An
+  archive read with one is written with a new one.
+- **Index order.** Every stock archive sorts its index by ID as a signed
+  32-bit number (the games binary-search it); 4 mod archives do not. The
+  writer always sorts that way and keeps the body in the original offset
+  order, so an unchanged rewrite of an unencrypted archive is
+  byte-identical.
+- **The writer never encrypts** (that needs the private key; the games read
+  unencrypted indexes, and XCC writes them too). Replace in a Copy rebuilds
+  only the archives on the edited entry's chain, through
+  `<out>.kooka-partial`, synced and renamed.
+- **Damaged and protected archives are read, not refused.** `expandrs98.mix`
+  is truncated (its last entry runs 115 bytes past the end) and two copies
+  of `ecache7.mix` have entries past the end: those entries are "broken"
+  (listed, never read, and a rewrite of their archive is refused).
+  `expandmd49.mix` and `expandmd51.mix` carry 255 overlapping fake entries
+  (a protection trick) but stay consistent. 45 files named `.mix` are empty
+  and 2 (`movies01.mix`, `movies02.mix` of one mod) are 4-byte stubs.
+- **No old-layout archive exists in the corpus**, so that layout is covered
+  by generated archives only.
+- **Sniffing order.** An SHP 1-3 pixels wide starts with bytes that read as
+  a valid flags word, so a scan sniffs SHP first and probes for a nested
+  archive only after; a nested archive must account for its whole entry
+  (or, in the new layout, have a consistent index).
+- **Names.** The shipped list (`data/mix-names.txt`, 10,111 names) holds
+  only names proven against the 12 stock archives of
+  `<root>/000-RA2YR Vanilla` (ra2, language, multi, maps01, maps02, theme,
+  ra2md, langmd, multimd, mapsmd03, thememd, expandmd01): candidates from
+  the stock `rules*.ini`, `art*.ini` and theater INI files inside them
+  (Image=, Cameo=, palettes, theater tile sets with their suffixes) and the
+  strings of the stock executables (`ra2.exe`, `game.exe`, `ra2md.exe`,
+  `gamemd.exe`: `CACHE.MIX`, `MAPS%02d.MIX`, `CAMEO.PAL`, ...), each kept
+  only when its ID is a stock entry whose content is the kind its suffix
+  says. The local list (18,941 more names from mods' INI files, local mix
+  databases and the loose corpus files' names) is written to
+  `~/.local/state/kooka-pictura/mix-names.txt` and never committed; the app
+  also learns names from the local mix databases and INI files of every
+  archive it lists. No global mix database was downloaded. Recipe:
+  `PICTURA_MIX_CORPUS_LIST=~/Claude/shp-corpus/mixlist0
+  PICTURA_MIX_STOCK_DIR="<root>/000-RA2YR Vanilla"
+  PICTURA_MIX_LOOSE=~/Claude/shp-corpus/shplist0:~/Claude/shp-corpus/tmplist0
+  PICTURA_MIX_NAMES_SHIPPED=crates/pictura-shp/data/mix-names.txt
+  PICTURA_MIX_NAMES_LOCAL=~/.local/state/kooka-pictura/mix-names.txt cargo
+  test -p pictura-shp --release --test mix_names -- --ignored` (204 s).
+- **The corpus gate** (`tests/mix_corpus.rs`, release, 6.1 min, peak RSS
+  1.83 GB; the largest single SHP/TMP entry is 335 MB):
+  634 archives parse (plus 45 empty files and the 2 stubs), 0 unreadable;
+  12,095 nested archives; 507 encrypted indexes, all decrypted; 785 of 788
+  checksums match (the 3 that do not are one mod's edited `langmd.mix` and
+  the protected `expandmd51.mix`); 331,310 entries, 7 out of bounds (the
+  ones above). Kinds: 129,572 TMP, 127,323 SHP, 19,812 WAV, 18,509 VXL,
+  12,095 MIX, 7,728 INI, 2,557 PAL, 392 LMD, 78 CSF, 13,228 other, 9 empty.
+  Every SHP entry (127,323) and every TMP entry (129,572) decodes, and an
+  unchanged re-encode is byte-identical. Named: 189,693 of 331,310 by the
+  shipped list alone, 295,548 (89%) with the local list; 35,762 stay
+  unnamed and show by ID with their sniffed kind.
+- **Documents from an archive** are extracted to a temporary folder
+  (`$TMPDIR/kooka-mix-XXXXXX`, removed when Kooka closes) and opened like a
+  loose file; a registry maps that file to its archive and ID chain. The
+  tab reads "gi.shp in ra2.mix" (nested: "in ra2.mix/conquer.mix"), and the
+  file stays out of Open Recent. Ctrl+S asks Save As Loose File (default) /
+  Replace in a Copy of the MIX / Cancel; without dialogs (offscreen,
+  control server) it is refused with the reason. Replace in a Copy runs the
+  usual save gate, writes the entry, then the new archive; choosing the
+  source archive itself needs a second confirmation that shows its full
+  path and defaults to Cancel. Afterwards the document belongs to the copy.
+- **Palettes.** After the loose-file steps, SHP resolution tries the
+  longest `.pal` name prefix inside the archives, then the default palette,
+  then `unittem.pal`; TMP resolution tries `iso<theater>.pal`. The archives
+  are, in order: the one the document came from, those open in the MIX
+  browser, and Preferences > MIX Archives (files, or folders standing for
+  their `.mix` files in the games' override order: expandmd99..00,
+  expand99..00, ra2md, ra2, the rest). Searches read indexes only and enter
+  a nested archive only when a name says it is one. A remembered palette
+  for an entry is keyed by its archive, not the temporary folder.
+- **App checks** (2026-11-02): `tst_mix` 15 of 15; `tst_shp` 32,
+  `tst_shp_view` 13 (+2 skipped), `tst_shp_unit` 11, `tst_tmp` 21,
+  `tst_open_save` 5 (+1 skipped) pass; the app's `shp` Rust tests 65 of 65
+  (7 new MIX ones); self-test 469 passed, 1 skipped, 0 failed (it now
+  expects the "MIX Archives" Preferences page).
