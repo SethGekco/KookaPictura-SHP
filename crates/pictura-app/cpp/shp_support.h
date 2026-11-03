@@ -140,6 +140,17 @@ public:
     // reason.
     bool tmpFromImageWithDialog(PictureView* source, const QString& path, bool dialogs);
 
+    // Save As SHP of a TMP template (shp_support_tmp.cpp): a new SHP
+    // document of its pixels (see tmp_to_shp), after the size limit; the
+    // template is not changed. False, with the reason in
+    // lastGateMessage(), when nothing was made.
+    bool tmpToShp(PictureView* source, bool perTile, bool extras, const QString& name);
+    // The options dialog (TmpToShpDialog), then tmpToShp() and the save of
+    // the new document to `path` through the SHP gate. Returns false (the
+    // template itself is not saved); savedCopy() says whether the SHP was.
+    // Interactive only: without dialogs it is refused with the reason.
+    bool tmpToShpWithDialog(PictureView* source, const QString& path, bool dialogs);
+
     // The bytes of sheet past the limit the user agreed `view` may hold.
     static quint64 allowanceOf(const PictureView* view);
     QString lastGateMessage() const { return gateMessage_; }

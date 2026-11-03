@@ -72,7 +72,10 @@ effect art directly.
   RA2 60x30 tiles), the grid, which cells hold tiles (by default those
   with pixels), height, land and ramp type, theater and palette, nearest or
   exact colors, flat or no z-data, and whether pixels outside the tiles
-  become extra blocks.
+  become extra blocks. Save As SHP of a template converts it into a new SHP
+  document (one frame per tile, or one frame of the whole template, extra
+  blocks drawn over the tiles or not); tile headers and z-data have no
+  place in an SHP and are not carried over, and the template is unchanged.
   MIX archives (`ra2.mix`, `expandmd01.mix` and the archives nested in
   them; TD/RA1 and RA/TS/RA2 layouts, encrypted and checksummed indexes)
   open from File > Open in a MIX browser: a tree of every entry with its

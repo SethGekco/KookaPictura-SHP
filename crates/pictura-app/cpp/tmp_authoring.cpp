@@ -298,6 +298,59 @@ QString TmpFromImageDialog::summaryForTest() const
     return summary_->text();
 }
 
+TmpToShpDialog::TmpToShpDialog(int tiles, int tileWidth, int tileHeight, int width, int height,
+                               const QString& palette, QWidget* parent)
+    : QDialog(parent)
+{
+    setObjectName(QStringLiteral("tmpToShpDialog"));
+    setWindowTitle(tr("Save As SHP"));
+    auto* intro = new QLabel(tr("This is a TMP terrain template. Saving it as SHP converts its "
+                                "pixels into a new SHP document in the same palette (%1), which "
+                                "is then saved; the template is not changed.")
+                                 .arg(palette.isEmpty() ? tr("the built-in grey") : palette),
+                             this);
+    intro->setWordWrap(true);
+    frames_ = new QComboBox(this);
+    frames_->setObjectName(QStringLiteral("tmpToShpFrames"));
+    frames_->addItem(tr("One frame per tile (%n frame(s) of %1 x %2 or more)", nullptr, tiles)
+                         .arg(tileWidth)
+                         .arg(tileHeight));
+    frames_->addItem(tr("One frame for the whole template (%1 x %2)").arg(width).arg(height));
+    extras_ = new QCheckBox(tr("Draw the extra blocks over the tiles"), this);
+    extras_->setObjectName(QStringLiteral("tmpToShpExtras"));
+    extras_->setChecked(true);
+    note_ = new QLabel(tr("Not carried over: an SHP has no place for the tile headers (cell, "
+                          "position, height, land and ramp type, radar colors) or the z-data. "
+                          "Per tile, every frame holds its tile at the same place, grown to "
+                          "hold the furthest extra block."),
+                       this);
+    note_->setObjectName(QStringLiteral("tmpToShpNote"));
+    note_->setWordWrap(true);
+    auto* form = new QFormLayout;
+    form->addRow(tr("Frames:"), frames_);
+    form->addRow(QString(), extras_);
+    auto* layout = new QVBoxLayout(this);
+    layout->addWidget(intro);
+    layout->addLayout(form);
+    layout->addWidget(note_);
+    layout->addWidget(okCancel(this));
+}
+
+bool TmpToShpDialog::perTile() const
+{
+    return frames_->currentIndex() == 0;
+}
+
+bool TmpToShpDialog::extras() const
+{
+    return extras_->isChecked();
+}
+
+QString TmpToShpDialog::noteForTest() const
+{
+    return note_->text();
+}
+
 } // namespace pictura
 
 #include "moc_tmp_authoring.cpp"

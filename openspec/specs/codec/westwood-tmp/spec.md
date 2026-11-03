@@ -104,7 +104,7 @@ when no dialog can be shown.
 
 #### Scenario: Wrong layers or targets are refused [tmp_save_refused]
 
-- **WHEN** a layer is renamed, a template is saved as `.shp`, or an SHP sheet as `.tmp` where no dialog can be shown
+- **WHEN** a layer is renamed, or, where no dialog can be shown, a template is saved as `.shp`, an SHP sheet as `.tmp` or an image as a TMP
 - **THEN** the save is refused with the reason, and an SHP sheet still saves under its theater suffix byte-identical
 
 ### Requirement: Editing TMP tile fields
@@ -154,3 +154,24 @@ these options and save the new template, leaving the image unchanged.
 
 - **WHEN** templates made from images are read by an independent reader
 - **THEN** every header, field and block reads as this codec reads it
+
+### Requirement: TMP templates converted to SHP
+
+The system SHALL convert a TMP template into a new SHP document when it is
+saved as `.shp`, after asking whether each tile becomes a frame (every
+frame the tile's rectangle at the same place, grown for the extra blocks)
+or the whole template one frame, and whether the extra blocks are drawn
+over the tiles. The SHP SHALL use the template's palette so every index
+survives, the system SHALL say that tile headers and z-data are not carried
+over, and the template SHALL be unchanged. Without dialogs the save SHALL be
+refused with the reason.
+
+#### Scenario: Frames of a template [tmp_to_shp_frames]
+
+- **WHEN** a template is converted per tile, per tile with its extra blocks, or as one frame
+- **THEN** each frame holds the tile's diamond (extras drawn over it), or the one frame the whole canvas, with the template's palette indices, and the template is unchanged
+
+#### Scenario: Save As SHP of a template [tmp_to_shp_shell]
+
+- **WHEN** an open template is saved as `.shp`
+- **THEN** the dialog says what is not carried over, a new SHP document is made and saved, the template still saves byte-identical, and without dialogs the save is refused

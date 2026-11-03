@@ -11,7 +11,7 @@ use pictura_shp::{MAX_FRAMES, MAX_SIDE};
 
 /// A blank sheet's (or a converted one's) layout, checked against the
 /// format and the sheet budget.
-fn new_layout(width: usize, height: usize, frames: usize) -> Result<Layout, String> {
+pub(super) fn new_layout(width: usize, height: usize, frames: usize) -> Result<Layout, String> {
     let side = usize::from(MAX_SIDE);
     if !(1..=side).contains(&width) || !(1..=side).contains(&height) {
         return fail(format!("An SHP frame is 1 to {side} pixels a side."));
@@ -24,7 +24,7 @@ fn new_layout(width: usize, height: usize, frames: usize) -> Result<Layout, Stri
 }
 
 /// The document of a new sheet: `rgba` on `layout`, the palette, no file.
-fn new_document(
+pub(super) fn new_document(
     name: &str,
     layout: &Layout,
     rgba: Vec<u8>,

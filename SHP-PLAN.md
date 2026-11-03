@@ -1145,3 +1145,19 @@ TMP authoring (recorded as each piece landed; the OpenSpec change is
   identically in pictura-shp and Ochre's `cnctmp.py`: every header, field,
   flag, extra rectangle and the FNV-1a of every image, z, extra and extra-z
   block (`~/Claude/shp-corpus/tmpedit/tmpedit-e2e.py new`, 6 of 6).
+- **TMP -> SHP** is an explicit conversion, never a save of the template:
+  Save As `.shp` of a template asks (TmpToShpDialog) for one frame per tile
+  (slot order; every frame the tile's `cx` x `cy` rectangle at the same
+  place, grown to hold the furthest extra block when extras are drawn) or
+  one frame of the whole canvas, and whether the extra blocks are drawn
+  over the diamonds (on by default, as the game draws them). The colour
+  layers' pixels are copied as they are into a new SHP sheet in the
+  template's palette (exactly its unique colours, so every index survives;
+  an off-palette pixel reaches the SHP gate), which opens as a new
+  document and is saved through the SHP gate; the template is unchanged
+  (an unchanged save of it is still byte-identical). The dialog and the
+  status message say that tile headers (cell, position, height, land and
+  ramp type, radar colors) and z-data are not carried over. Headless it is
+  refused with the reason, like the other conversions. The new SHP has no
+  source file, so every frame is written fresh. The size check is
+  `Limits::admit` on the new sheet.

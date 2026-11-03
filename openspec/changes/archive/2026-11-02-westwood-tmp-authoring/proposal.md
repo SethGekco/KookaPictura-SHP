@@ -12,6 +12,9 @@ three open TMP items.
 
 - **New TMP from Image**: File > New TMP from Image and Save As TMP of an
   image make a new template from a picture through an options dialog.
+- **TMP to SHP**: Save As SHP of a template converts its pixels into a new
+  SHP document (one frame per tile or one frame), saying that tile headers
+  and z-data are not carried over; the template is unchanged.
 
 ## Capabilities
 
@@ -21,12 +24,13 @@ None.
 
 ### Modified Capabilities
 
-- `codec/westwood-tmp`: templates made from images.
+- `codec/westwood-tmp`: templates made from images; templates converted
+  to SHP.
 
 ## Impact
 
 - `crates/pictura-shp/src/tmp_image.rs` and `tests/tmp_image.rs`.
-- The app glue `crates/pictura-app/src/cxxqt_object/shp/tmp_image.rs` and
-  its tests; the shell's `tmp_authoring.{h,cpp}`, `shp_support_tmp.cpp`,
+- The app glue `crates/pictura-app/src/cxxqt_object/shp/tmp_image.rs`,
+  `tmp_shp.rs` and their tests; the shell's `tmp_authoring.{h,cpp}`, `shp_support_tmp.cpp`,
   the save gate in `shp_support.cpp` and `tests/tst_tmp.cpp`; the hooks
   listed in `crates/pictura-shp/HOOKS.md`.

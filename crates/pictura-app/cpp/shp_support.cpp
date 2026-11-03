@@ -396,7 +396,10 @@ bool ShpSupport::saveGate(PictureView* view, bool dialogs, const QString& path)
     // the document asks for it (taken by that save, so it never lingers).
     shp_set_save_radar(false);
     if (view && tmp_info(*view).valid) {
-        return tmpGate(view, dialogs, path);
+        // A template saved as .shp is converted, explicitly, into a new SHP.
+        return QFileInfo(path).suffix().compare(QStringLiteral("shp"), Qt::CaseInsensitive) == 0
+            ? tmpToShpWithDialog(view, path, dialogs)
+            : tmpGate(view, dialogs, path);
     }
     // An image (or, under .tmp, an SHP sheet) saved as a TMP is made into a
     // new template first; an SHP sheet keeps saving under a theater suffix.

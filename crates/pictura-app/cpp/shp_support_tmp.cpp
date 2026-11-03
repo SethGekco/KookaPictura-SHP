@@ -276,4 +276,65 @@ bool ShpSupport::tmpFromImageWithDialog(PictureView* source, const QString& path
     return false;
 }
 
+bool ShpSupport::tmpToShp(PictureView* source, bool perTile, bool extras, const QString& name)
+{
+    gateMessage_.clear();
+    auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+    if (!window || !source || !tmp_info(*source).valid) {
+        gateMessage_ = tr("no TMP template");
+        return false;
+    }
+    auto* view = new PictureView(window);
+    const ::rust::Vec<int32_t> made =
+        tmp_to_shp(*view, *source, name, perTile, extras, allowanceOf(view));
+    if (made.size() != 3) {
+        delete view;
+        gateMessage_ = shp_last_error();
+        message(gateMessage_);
+        return false;
+    }
+    window->addDocument(view, QString());
+    gateMessage_ = tr("New SHP of the template: %n frame(s) of %1 x %2; tile headers and z-data "
+                      "were not carried over.",
+                      nullptr, made[0])
+                       .arg(made[1])
+                       .arg(made[2]);
+    message(gateMessage_);
+    return true;
+}
+
+bool ShpSupport::tmpToShpWithDialog(PictureView* source, const QString& path, bool dialogs)
+{
+    gateMessage_.clear();
+    savedCopy_ = false;
+    auto* window = qobject_cast<PicturaMainWindow*>(frame_);
+    if (!window || !source || !dialogs || !asksNow()) {
+        gateMessage_ = tr("A TMP terrain template saves as a TMP. Saving it as SHP converts its "
+                          "pixels with an options dialog (frames per tile or one frame), which "
+                          "needs an interactive session.");
+        message(gateMessage_);
+        return false;
+    }
+    const TmpInfo info = tmp_info(*source);
+    TmpToShpDialog dialog(info.tiles, info.cx, info.cy, info.width, info.height,
+                          QString(info.palette_name), frame_);
+    if (dialog.exec() != QDialog::Accepted) {
+        gateMessage_ = tr("Save As SHP was cancelled.");
+        return false;
+    }
+    if (!tmpToShp(source, dialog.perTile(), dialog.extras(), QFileInfo(path).completeBaseName())) {
+        QMessageBox::warning(frame_, tr("Save As SHP"), gateMessage_);
+        return false;
+    }
+    const QString made = gateMessage_;
+    // The new document is active now: the normal save, its gate included.
+    savedCopy_ = window->saveActiveAs(path);
+    if (savedCopy_) {
+        gateMessage_ = tr("Saved %1 from a new SHP document; the template is unchanged. %2")
+                           .arg(QFileInfo(path).fileName(), made);
+        message(gateMessage_);
+    }
+    return false;
+}
+
 } // namespace pictura

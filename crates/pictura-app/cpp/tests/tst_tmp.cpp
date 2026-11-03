@@ -162,6 +162,8 @@ private slots:
     void saveAsTmpOfAnImageAsksForTheTemplate();
     void saveAsTmpOfAnImageIsRefusedWithoutDialogs();
     void newTmpFromImageIsInTheFileMenu();
+    void saveAsShpOfATemplateConvertsItPerTile();
+    void aTemplateBecomesOneShpFrame();
 
 private:
     pictura::PictureView* open(const QString& path);
@@ -721,6 +723,77 @@ void TmpTest::newTmpFromImageIsInTheFileMenu()
     const qsizetype at = actions.indexOf(action);
     QVERIFY(at > 0);
     QCOMPARE(actions.at(at - 1), support_->newShpAction());
+}
+
+void TmpTest::saveAsShpOfATemplateConvertsItPerTile()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    const int documents = window_->documentCount();
+    bool seen = false;
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, [&] {
+        for (QWidget* widget : QApplication::topLevelWidgets()) {
+            auto* dialog = qobject_cast<pictura::TmpToShpDialog*>(widget);
+            if (!dialog || !dialog->isVisible() || seen) {
+                continue;
+            }
+            seen = true;
+            QVERIFY(dialog->noteForTest().contains(QStringLiteral("z-data")));
+            QVERIFY(dialog->noteForTest().contains(QStringLiteral("tile headers")));
+            QVERIFY(dialog->perTile());
+            QVERIFY(dialog->extras());
+            dialog->accept();
+        }
+    });
+    poll.start(20);
+    const QString out = dir_.filePath(QStringLiteral("tiles.shp"));
+    QVERIFY(!window_->saveActiveAs(out)); // the template itself is not saved
+    QVERIFY(seen);
+    QVERIFY2(support_->savedCopy(), qPrintable(support_->lastGateMessage()));
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("not carried over")));
+    QVERIFY(pictura::shp_sniff_file(out));
+    QCOMPARE(window_->documentCount(), documents + 1);
+    pictura::PictureView* made = window_->activeView();
+    QVERIFY(made && made != view);
+    const pictura::ShpInfo info = pictura::shp_info(*made);
+    QVERIFY(info.valid);
+    QCOMPARE(info.frames, 2);
+    QCOMPARE(info.width, kCx);
+    // Slot 0's extra block reaches 6 px above its tile.
+    QCOMPARE(info.height, kCy + 6);
+    QCOMPARE(info.palette_name, QStringLiteral("isotem.pal"));
+    QCOMPARE(window_->documentPath(window_->activeDocumentIndex()), out);
+    // The template is as it was.
+    QVERIFY(pictura::tmp_info(*view).valid);
+    QCOMPARE(view->document_width(), 90);
+    const QString again = dir_.filePath(QStringLiteral("again.tem"));
+    window_->setActiveDocumentIndex(0);
+    QVERIFY(window_->saveActiveAs(again));
+    QFile a(tmp_);
+    QFile b(again);
+    QVERIFY(a.open(QIODevice::ReadOnly) && b.open(QIODevice::ReadOnly));
+    QCOMPARE(b.readAll(), a.readAll());
+}
+
+void TmpTest::aTemplateBecomesOneShpFrame()
+{
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    QVERIFY2(support_->tmpToShp(view, false, true, QStringLiteral("whole")),
+             qPrintable(support_->lastGateMessage()));
+    pictura::PictureView* made = window_->activeView();
+    QVERIFY(made && made != view);
+    const pictura::ShpInfo info = pictura::shp_info(*made);
+    QCOMPARE(info.frames, 1);
+    QCOMPARE(info.width, 90);
+    QCOMPARE(info.height, 51);
+    // Tile 1's diamond (index 60) at the same canvas position.
+    QCOMPARE(pictura::shp_index_of(*made, made->composite_argb(60, 6 + 15 + 10)), 60);
+    QCOMPARE(pictura::shp_check(*made).off_palette, 0);
+    // Not a template: refused.
+    QVERIFY(!support_->tmpToShp(made, true, true, QStringLiteral("x")));
 }
 
 QTEST_MAIN(TmpTest)

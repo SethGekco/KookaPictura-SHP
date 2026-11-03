@@ -11,3 +11,6 @@ measurements behind it.
   from a file in every respect.
 - **Outside pixels are the user's call.** They become extra blocks only on
   request (nearest tile); otherwise the save gate's Clip applies.
+- **TMP to SHP copies pixels only.** The SHP keeps the template's palette,
+  so indices survive; tile headers and z-data have no place in an SHP, and
+  the dialog and the status say so.

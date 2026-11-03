@@ -321,6 +321,23 @@ pub mod ffi {
             allowance: u64,
         ) -> Vec<i32>;
 
+        /// Save As SHP of a TMP template: a new SHP document in `view` in the
+        /// template's palette, one frame per tile in slot order (`per_tile`;
+        /// every frame the tile's rectangle, grown to hold the furthest extra
+        /// block) or one frame of the whole canvas, extra blocks drawn over
+        /// the diamonds when `extras`. Tile headers and z-data are not
+        /// carried over; `source` is not changed. Checked against the size
+        /// limit. Returns `[frames, width, height]`, or empty with the reason
+        /// in `shp_last_error`.
+        fn tmp_to_shp(
+            view: Pin<&mut PictureView>,
+            source: &PictureView,
+            name: &QString,
+            per_tile: bool,
+            extras: bool,
+            allowance: u64,
+        ) -> Vec<i32>;
+
         /// The `.pal` the next `open_image_start` on this view uses for an
         /// SHP; empty for the built-in grey fallback.
         fn shp_set_open_palette(view: Pin<&mut PictureView>, path: &QString);

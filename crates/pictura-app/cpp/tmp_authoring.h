@@ -94,4 +94,27 @@ private:
     QLabel* summary_ = nullptr;
 };
 
+// Save As SHP of a TMP template: one frame per tile (each the tile's
+// diamond, the same place in every frame) or one frame of the whole
+// template, and whether extra blocks are drawn over the diamonds. A note
+// says what an SHP cannot hold: the tile headers and the z-data.
+class TmpToShpDialog : public QDialog {
+    Q_OBJECT
+
+public:
+    TmpToShpDialog(int tiles, int tileWidth, int tileHeight, int width, int height,
+                   const QString& palette, QWidget* parent);
+    bool perTile() const;
+    bool extras() const;
+
+    QComboBox* framesBox() const { return frames_; }
+    QCheckBox* extrasBox() const { return extras_; }
+    QString noteForTest() const;
+
+private:
+    QComboBox* frames_ = nullptr;
+    QCheckBox* extras_ = nullptr;
+    QLabel* note_ = nullptr;
+};
+
 } // namespace pictura
