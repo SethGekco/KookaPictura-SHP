@@ -383,8 +383,9 @@ int pictura::runPaintPerfChecks(pictura::PicturaMainWindow& frame)
     // stroke with the GPU disabled within ±1 LSB per channel. The GPU stroke is
     // now authoritative — it patches the working layer per dab, so `end_paint`
     // commits the GPU-authored document with no CPU replay. Skips without an
-    // adapter.
-    {
+    // adapter; the skip ends only this check, so pp_pyramid_per_frame still
+    // runs on the CPU path.
+    do {
         ST_BEGIN("pp_gpu_commit");
         const bool created = frame.newDocument(QStringLiteral("PaintGpuCommit"), 1024, 1024,
                                                QStringLiteral("rgb"), 8,
@@ -397,7 +398,7 @@ int pictura::runPaintPerfChecks(pictura::PicturaMainWindow& frame)
         if (!view->gpu_available()) {
             frame.closeDocument(gpuDoc, false);
             ST_SKIP("no GPU adapter");
-            return 0;
+            break;
         }
         view->set_active_layer(QStringLiteral("0"));
         view->set_gpu_compute(true);
@@ -446,7 +447,7 @@ int pictura::runPaintPerfChecks(pictura::PicturaMainWindow& frame)
         if (!begun || !ended || !begun2 || !ended2 || dabs < 6 || dabs2 < 6 || !withinOneLsb) {
             return pictura::selfTest().fail(546, "gpu commit differs from the CPU by >1 LSB");
         }
-    }
+    } while (false);
 
     // pp_pyramid_per_frame (547): several dabs arriving between two presents
     // rebuild the view pyramid once, at the frame flush, not once per dab, and

@@ -1081,3 +1081,19 @@ MIX archives (recorded as each piece landed; the OpenSpec change is
   `tst_open_save` 5 (+1 skipped) pass; the app's `shp` Rust tests 65 of 65
   (7 new MIX ones); self-test 469 passed, 1 skipped, 0 failed (it now
   expects the "MIX Archives" Preferences page).
+
+Self-test count after the MIX commits (2026-11-02):
+
+- **469 passed, 1 skipped was the CPU backend, not a regression.** The MIX
+  checks ran the self-test with `WGPU_BACKEND=cpu`; every earlier count (471
+  of 471) was a GPU run. Without an adapter `pp_gpu_commit` skips, and its
+  skip used to `return 0` from the whole paint-performance group, so the
+  next check, `pp_pyramid_per_frame`, never ran either (that is the one
+  that disappeared). The MIX commits changed neither check, and the same
+  build on the GPU passes 471 of 471. The early return is an upstream
+  coverage hole: `pp_pyramid_per_frame` has a CPU path of its own (a
+  sub-budget brush on the exact path), so the skip now ends only
+  `pp_gpu_commit` (a `do { } while (false)` block with `break`), a generic
+  self-contained fix like the save guard. Now a CPU run is 470 passed, 1
+  skipped (`pp_gpu_commit`, which needs an adapter by design) and a GPU run
+  471 of 471; report the backend with the count.

@@ -82,3 +82,11 @@ generic too and kept self-contained the same way. It touches no SHP code:
 | `crates/pictura-app/cpp/gpu_probe.{h,cpp}` | `takeGpuFailureNotice()` |
 | `crates/pictura-app/cpp/frame.cpp` | `updateStatus` shows a pending notice in the status bar (the backend label then reads "CPU (safe mode)") |
 | `crates/pictura-app/cpp/tests/CMakeLists.txt`, `tests/tst_gpu_fallback.cpp` (new) | `tst_gpu_fallback` in the suite list (`injectedFailureOpensOnTheCpu`) |
+
+The self-test skip fix is generic too (a run without a GPU adapter skipped
+`pp_gpu_commit` and, through an early `return 0`, silently dropped the next
+check, `pp_pyramid_per_frame`, which has a CPU path):
+
+| Upstream file | Hook |
+|---|---|
+| `crates/pictura-app/cpp/selftest_paint_perf.cpp` | `pp_gpu_commit` is a `do { } while (false)` block whose no-adapter skip `break`s instead of returning, so `pp_pyramid_per_frame` still runs |
