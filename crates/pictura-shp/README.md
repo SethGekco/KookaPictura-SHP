@@ -25,13 +25,21 @@ other `pictura-*` crate, no third-party dependency.
   plug-in range) holding the layout, the palette as read and the original
   file bytes, with a small `8BIM` section reader/rewriter that keeps every
   other block.
+- `tmp` reads and writes TMP isometric terrain templates (the theater
+  suffixes `.tem`, `.sno`, `.urb`, `.ubn`, `.des`, `.lun`, which theater
+  SHPs share; the content decides): the diamond, its z-data, the extra block
+  and its z-data. The writer patches the original file in place while every
+  block keeps its size, so untouched tiles, uninitialised header bytes, gaps
+  and tails stay byte for byte; a tile that gains a block is laid out afresh
+  as Ochre's `build_tmp` does.
 
 ## Provenance
 
 The code is ported from two GPL-3.0-or-later projects by the owner of this
 fork: qshp (`extras/qshp/src/shpcodec.{h,cpp}`: sniffer, decoder, palettes)
 and Ochre's C&C addon (`addons/cnc/cncshp.py` and `cncpal.py`: the
-byte-preserving writer). Each source file names what it derives from.
+byte-preserving writer; `cnctmp.py`: the TMP reader and writer). Each
+source file names what it derives from.
 
 The format itself is documented publicly:
 
@@ -70,3 +78,17 @@ that the sniffer agrees, that every decode hash matches, that an unchanged
 save is byte-identical, and that a one-pixel edit in one frame leaves every
 other frame's header fields and data bytes identical and decodes back to the
 edited planes.
+
+The TMP gate works the same way over a list of theater files (SHPs among
+them), against digests from Ochre's `cnctmp.py` (the digest is described in
+`tests/tmp_corpus.rs`):
+
+```bash
+PICTURA_TMP_CORPUS_LIST=/path/list0 PICTURA_TMP_REFERENCE=/path/ref.tsv \
+  cargo test -p pictura-shp --test tmp_corpus -- --ignored --nocapture
+```
+
+It checks that the sniffer agrees with the reference, that every decode
+matches, that an unchanged save is byte-identical both in place and laid out
+afresh, and that a one-pixel edit changes exactly one byte, inside that
+tile's diamond.

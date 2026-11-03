@@ -867,3 +867,34 @@ Phase 3, unit tools (recorded as each piece landed):
   program held video memory this time), so the original out-of-memory did
   not recur; the fallback itself is covered by the injected-failure tests.
   Self-test 471 of 471.
+
+Phase 4, TMP terrain (recorded as each piece landed; the OpenSpec change is
+`openspec/changes/archive/2026-11-02-westwood-tmp-terrain`):
+
+- **The corpus.** The TMPs sit beside the SHPs under the one root folder of
+  `~/Claude/shp-corpus/shplist0` (`/mnt/wwn-0x50014ee6b383afb8-part1/(3)
+  Games Data/RA2 & Yuri's Revenge`). `find <root> -type f \( -iname '*.tem'
+  -o -iname '*.sno' -o -iname '*.urb' -o -iname '*.ubn' -o -iname '*.des'
+  -o -iname '*.lun' -o -iname '*.tmp' \) -print0` (2026-11-02) found 4,789
+  files: 3,083 `.tem`, 864 `.sno`, 801 `.des`, 40 `.ubn`, one `.tmp`, no
+  `.urb` or `.lun` (`~/Claude/shp-corpus/phase4/theaterlist0`). Of those,
+  2,745 are TMPs by Ochre's `is_tmp` and by this sniffer
+  (`~/Claude/shp-corpus/tmplist0`), 2,043 are SHPs, and one (a `.TMP`
+  scratch file of a voxel tool) is neither; no file passes both sniffers.
+  All 2,745 are Red Alert 2 templates (60x30 tiles): 9,744 tiles, every one
+  with z-data, 2,635 with an extra block and its z-data. The plan's "1392 of
+  2108" was a different selection; the split here is 2,043 SHPs of 4,789.
+  The game's MIX archives are not read: neither this repository nor Ochre
+  has a MIX reader, so the corpus is loose files only.
+- **The writer patches in place** rather than laying the file out again
+  (Ochre's `build_tmp` layout, which the port keeps for a tile that gains a
+  block). On the corpus both reproduce every file (2,745 of 2,745 each), but
+  patching keeps a file from another tool with another record order, gaps
+  or a tail as well. Decoding matches Ochre's reader on every file
+  (`tests/tmp_corpus.rs` against digests from `cnctmp.py`), and a one-pixel
+  edit changes exactly one byte, inside that tile's diamond, in all 2,745.
+- **The sniffer is stricter than Ochre's** (which checks only the header):
+  no offset may point inside the offset table and at least one slot must
+  hold a whole tile. It agrees with Ochre on all 4,789 theater files. A slot
+  whose offset points at no whole tile is reported as unreadable, kept by an
+  in-place save and refuses a rebuild (none in the corpus).

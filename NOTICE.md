@@ -61,7 +61,8 @@ full license text is in [`LICENSES/photocraft.txt`](LICENSES/photocraft.txt).
 
 The SHP support in `crates/pictura-shp` (a fork addition) is ported from
 **qshp** (`src/shpcodec.{h,cpp}`) and the **Ochre** C&C addon
-(`addons/cnc/cncshp.py`, `cncpal.py`), Copyright (C) 2026 Ochre
+(`addons/cnc/cncshp.py`, `cncpal.py`, and `cnctmp.py` for TMP terrain),
+Copyright (C) 2026 Ochre
 contributors, licensed under the **GNU General Public License v3 or later**,
 the same license as Kooka Pictura. Both are by the owner of this fork. No
 EA/Westwood game assets are included.
