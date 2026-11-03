@@ -22,7 +22,9 @@ void ImageView::setShpGrid(const ShpGrid& grid)
         && g.offPalette == grid.offPalette && g.first == grid.first
         && g.shadowHalf == grid.shadowHalf && g.shadowUnderlay == grid.shadowUnderlay
         && g.activeShadow.cacheKey() == grid.activeShadow.cacheKey()
-        && g.remapFrom == grid.remapFrom && g.remapTo == grid.remapTo) {
+        && g.remapFrom == grid.remapFrom && g.remapTo == grid.remapTo
+        && g.tileOutlines == grid.tileOutlines && g.extraOutlines == grid.extraOutlines
+        && g.activeTile == grid.activeTile) {
         return;
     }
     shpGrid_ = grid;
@@ -278,6 +280,10 @@ void ImageView::paintShpHouse(QPainter& painter)
 void ImageView::paintShpGrid(QPainter& painter)
 {
     const ShpGrid& g = shpGrid_;
+    if (!docSize_.isEmpty() && !g.tileOutlines.isEmpty()) {
+        paintTmpOutlines(painter);
+        return;
+    }
     if (docSize_.isEmpty() || g.cell.isEmpty() || g.cols <= 0 || g.frames <= 0) {
         return;
     }
@@ -313,6 +319,55 @@ void ImageView::paintShpGrid(QPainter& painter)
     if (g.active >= 0 && g.active < g.frames) {
         painter.setPen(QPen(palette().color(QPalette::Highlight), 0));
         painter.drawRect(cellRect(g.active).adjusted(-1, -1, 1, 1));
+    }
+    painter.restore();
+    paintShpOffPalette(painter);
+}
+
+// TMP terrain: each tile's diamond and each extra block (dashed), one
+// screen pixel wide at any zoom, the active tile highlighted. View-only.
+void ImageView::paintTmpOutlines(QPainter& painter)
+{
+    const ShpGrid& g = shpGrid_;
+    painter.save();
+    painter.setTransform(viewRotation());
+    painter.setClipRect(viewRect());
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const auto toView = [&](const QPointF& p) {
+        return QPointF(p.x() * zoom_ + offset_.x(), p.y() * zoom_ + offset_.y());
+    };
+    const auto polygon = [&](const QPolygonF& image) {
+        QPolygonF out;
+        out.reserve(image.size());
+        for (const QPointF& p : image) {
+            out.append(toView(p));
+        }
+        return out;
+    };
+    const QRectF visible = viewRect();
+    if (g.visible) {
+        QColor line = palette().color(QPalette::Mid);
+        line.setAlpha(190);
+        painter.setPen(QPen(line, 0));
+        painter.setBrush(Qt::NoBrush);
+        for (const QPolygonF& tile : g.tileOutlines) {
+            const QPolygonF v = polygon(tile);
+            if (v.boundingRect().intersects(visible)) {
+                painter.drawPolygon(v);
+            }
+        }
+        QPen dashed(line, 0, Qt::DashLine);
+        painter.setPen(dashed);
+        for (const QRectF& extra : g.extraOutlines) {
+            const QRectF v(toView(extra.topLeft()), toView(extra.bottomRight()));
+            if (v.intersects(visible)) {
+                painter.drawRect(v);
+            }
+        }
+    }
+    if (g.activeTile >= 0 && g.activeTile < g.tileOutlines.size()) {
+        painter.setPen(QPen(palette().color(QPalette::Highlight), 2));
+        painter.drawPolygon(polygon(g.tileOutlines.at(g.activeTile)));
     }
     painter.restore();
     paintShpOffPalette(painter);

@@ -654,6 +654,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/shp_undo_focus.cpp
     crates/pictura-app/cpp/panels/shp_palette_panel.cpp
     crates/pictura-app/cpp/panels/shp_unit_panel.cpp
+    crates/pictura-app/cpp/panels/tmp_tiles_panel.cpp
     crates/pictura-app/cpp/panels/histogram_panel.cpp
     crates/pictura-app/cpp/panels/adjustments_panel.cpp
     crates/pictura-app/cpp/panels/placeholder_panel.cpp
@@ -855,6 +856,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/shp_undo_focus.h
     crates/pictura-app/cpp/panels/shp_palette_panel.h
     crates/pictura-app/cpp/panels/shp_unit_panel.h
+    crates/pictura-app/cpp/panels/tmp_tiles_panel.h
     crates/pictura-app/cpp/shp_authoring.h
     crates/pictura-app/cpp/shp_palettes.h
     crates/pictura-app/cpp/shp_support.h

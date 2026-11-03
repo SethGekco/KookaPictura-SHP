@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// KookaPictura-SHP fork: the SHP dock (Frames, Playback, Palette), frame stepping,
+// KookaPictura-SHP fork: the SHP dock (Frames, Playback, Palette; Tiles for a TMP
+// terrain template), frame stepping,
 // and the save gate. The frame reaches it through three one-line hooks
 // (install, retarget, refresh) listed in crates/pictura-shp/HOOKS.md.
 #pragma once
@@ -25,6 +26,7 @@ class ShpPalettePanel;
 class ShpPlaybackPanel;
 class ShpUndoFocus;
 class ShpUnitPanel;
+class TmpTilesPanel;
 enum class ToolId;
 struct ShpPlan;
 
@@ -46,6 +48,7 @@ public:
     ShpPlaybackPanel* playback() const { return playback_; }
     ShpUndoFocus* undoFocus() const { return undoFocus_; }
     ShpUnitPanel* unit() const { return unit_; }
+    TmpTilesPanel* tiles() const { return tiles_; }
 
     // The active document changed: follow it, and show the dock when an
     // SHP becomes active.
@@ -201,6 +204,10 @@ private:
     // returns -1.
     int unitRefused(const QString& text);
     void refreshFrame();
+    // The dock's panels for an SHP sheet, or for a TMP template.
+    void showPanelsFor(bool tmp);
+    // The active document is an SHP sheet or a TMP template.
+    bool westwoodView() const;
     void refreshCommands(bool shp);
     void refreshCropTools(bool shp);
     enum class Verdict { Go, Alternative, Refused, Cancelled };
@@ -224,6 +231,7 @@ private:
     ShpPlaybackPanel* playback_ = nullptr;
     ShpUndoFocus* undoFocus_ = nullptr;
     ShpUnitPanel* unit_ = nullptr;
+    TmpTilesPanel* tiles_ = nullptr;
     bool commandsForShp_ = false;
     QMetaObject::Connection hoverConnection_;
     QAction* newShpAction_ = nullptr;

@@ -15,9 +15,15 @@
 //! (i32), height, land, ramp, radar low, radar high, the diamond as a
 //! `cx * cy` rectangle (0 outside), then for z, extra and extra z a presence
 //! byte and the bytes (z as a rectangle, 255 outside).
+//!
+//! It also lays every template out as document layers (`terrain::render`)
+//! and checks they read back to the same tiles.
 
 mod md5;
 
+use pictura_shp::palette::{fallback_palette, unique_colours};
+use pictura_shp::sheet::inverse;
+use pictura_shp::terrain::{read_back, render, Placement};
 use pictura_shp::tmp::{self, diamond_rows, Template};
 use std::collections::HashMap;
 use std::os::unix::ffi::OsStrExt;
@@ -64,6 +70,10 @@ struct Tally {
     with_extra: usize,
     with_extra_z: usize,
     unreadable_slots: usize,
+    layers_round_trip: usize,
+    max_canvas: (usize, usize),
+    max_tile_layers: usize,
+    max_extra_layers: usize,
 }
 
 #[test]
@@ -126,6 +136,27 @@ fn every_real_template_decodes_and_saves_unchanged() {
             t.with_extra_z += usize::from(tile.extra_z.is_some());
         }
         t.unreadable_slots += template.unreadable.len();
+        // The document layout: every tile and extra on its layers, read back
+        // to the same template.
+        let unique = unique_colours(&fallback_palette());
+        match Placement::new(&template) {
+            Some(p) => {
+                t.max_canvas = (t.max_canvas.0.max(p.width), t.max_canvas.1.max(p.height));
+                t.max_tile_layers = t.max_tile_layers.max(p.tile_groups);
+                t.max_extra_layers = t.max_extra_layers.max(p.extra_groups);
+                let layers = render(&template, &p, &unique);
+                let refs: Vec<&[u8]> = layers.iter().map(Vec::as_slice).collect();
+                let scan = read_back(&template, &p, &refs, &inverse(&unique));
+                if scan.template.as_ref() == Some(&template)
+                    && scan.off_palette + scan.off_scale + scan.outside == 0
+                {
+                    t.layers_round_trip += 1;
+                } else {
+                    failures.push(format!("layers do not read back: {name}"));
+                }
+            }
+            None => failures.push(format!("no placement: {name}")),
+        }
         if tmp::build(&template, Some(&data)).as_deref() == Ok(&data[..]) {
             t.in_place_identical += 1;
         } else {

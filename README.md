@@ -55,7 +55,14 @@ effect art directly.
   Auto goes by the palette's name) decides which indices have a role in the
   hover readout and whether the shadow and house-color tools apply.
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: TMP terrain (see [`SHP-PLAN.md`](SHP-PLAN.md)).
+  byte-identical.
+  TS / RA2 / YR TMP terrain templates (`.tem`, `.sno`, `.urb`, `.ubn`,
+  `.des`, `.lun`, `.tmp`; the content decides between TMP and SHP) open with
+  their tiles in place on a Tiles layer, extra blocks on Extras layers and
+  z-data on hidden Z layers as greys, in their `iso<theater>.pal` palette. A
+  Tiles panel lists every tile (cell, height, land and ramp type, extra
+  block, z-data, radar colors) and the canvas outlines each diamond.
+  Saving templates is next (see [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
   opens SHPs as sprite sheets (a small converter saves them back). Do not

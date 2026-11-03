@@ -483,7 +483,8 @@ QPixmap ShpFramesPanel::offSheetThumbnail(int index)
 
 void ShpFramesPanel::syncGrid()
 {
-    if (!canvas_) {
+    // A TMP template's outlines belong to the Tiles panel.
+    if (!canvas_ || (view_ && tmp_info(*view_).valid)) {
         return;
     }
     ImageView::ShpGrid grid;

@@ -898,3 +898,37 @@ Phase 4, TMP terrain (recorded as each piece landed; the OpenSpec change is
   hold a whole tile. It agrees with Ochre on all 4,789 theater files. A slot
   whose offset points at no whole tile is reported as unreadable, kept by an
   in-place save and refuses a rebuild (none in the corpus).
+- **Z-data is on hidden layers, not in a document channel.** Kooka's
+  `doc.channels` are nameless and positional ("Alpha N"), and the Channels
+  panel cannot make one the paint target, so z-data there could be seen but
+  not edited. The closest honest equivalent is a pixel layer: a template
+  opens as a "Tiles" layer (every diamond at its template position; diamonds
+  never overlap, in the corpus or by construction), "Extras" layers (extra
+  blocks overlap each other in 263 of the 2,745 files, so they are placed
+  greedily on "Extras", "Extras 2", ...; at most three in the corpus) and,
+  hidden, "Z Tiles" and "Z Extras ..." with the same placement. A z value v
+  (0-31) is the grey 8v, 255 ("no z") is transparent, and an out-of-range
+  value the file holds (32-254) is kept as (255, 0, v), so every byte reads
+  back. Show a Z layer and paint it with greys like any layer; a grey that
+  is not on the scale is caught at save (and Snap picks the nearest depth).
+  The canvas is the union of tiles and extras, so an extra above the
+  template moves everything down (largest corpus canvas 330x180).
+- **The SHP dock serves both formats.** For a template it shows a Tiles
+  panel (slot, cell, position, height, land and ramp type with the game's
+  name, extra block and its layer, z-data, radar colors) above the Palette
+  panel and hides Frames, Playback and Unit; the title reads "TMP Tiles &
+  Palette". Clicking a row brings the tile into view; the canvas outlines
+  every diamond, and every extra block dashed, through the frame grid's
+  `ShpGrid` (an Outlines checkbox hides them). Hovering names the tile and
+  index under the cursor. Image Size, Canvas Size, Crop and the other
+  reshaping commands are blocked as for a sheet.
+- **Which palette a template opens with:** the one remembered for its
+  folder (kept apart from the SHP one, since a terrain folder holds both
+  kinds), then `<stem>.pal` beside it, then `iso<theater>.pal` (for
+  `clear01.tem`, `isotem.pal`) beside it and then in the palette folders,
+  then the default palette only if its name starts with "iso". The Palette
+  panel's kind is terrain.
+- **Opening.** The theater suffixes and `.tmp` are in the Open dialog's All
+  Formats and in a "Westwood TMP terrain and theater SHP" filter; the
+  content decides: the SHP sniffer runs first and a TMP is tried when it
+  refuses (an SHP's first u16 is 0, so the two never both accept).

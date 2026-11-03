@@ -128,7 +128,8 @@ fn header(doc: &Document) -> Option<Header> {
     block(doc).and_then(Header::read)
 }
 
-/// `Some(result)` when `bytes` is an SHP, so the caller never hands it to
+/// `Some(result)` when `bytes` is an SHP or a TMP terrain template (the
+/// content decides, whatever the suffix), so the caller never hands it to
 /// another decoder (an installed Qt SHP plugin included); `None` otherwise.
 pub(in crate::cxxqt_object) fn decode_shp(
     path: &str,
@@ -137,7 +138,7 @@ pub(in crate::cxxqt_object) fn decode_shp(
     progress: &dyn Fn(u8, &str),
 ) -> Option<Option<OpenedDocument>> {
     if !sniff(bytes, Some(bytes.len())) {
-        return None;
+        return decode_tmp(path, bytes, gpu, progress);
     }
     let choice = OPEN_PALETTE
         .with(|p| p.borrow().clone())
@@ -634,19 +635,27 @@ fn view_header(view: &PictureView) -> Option<Header> {
     view.rust().session.doc.as_ref().and_then(header)
 }
 
+/// The palette of an SHP or TMP document.
+fn view_palette(view: &PictureView) -> Option<Palette> {
+    let doc = view.rust().session.doc.as_ref()?;
+    header(doc)
+        .map(|h| h.palette)
+        .or_else(|| tmp::tmp_resource(doc).map(|r| r.palette))
+}
+
 pub(super) fn shp_palette_unique(view: &PictureView) -> Vec<u32> {
-    view_header(view).map_or_else(Vec::new, |h| unique_colours(&h.palette).argb.to_vec())
+    view_palette(view).map_or_else(Vec::new, |p| unique_colours(&p).argb.to_vec())
 }
 
 pub(super) fn shp_palette_source(view: &PictureView) -> Vec<u32> {
-    view_header(view).map_or_else(Vec::new, |h| h.palette.argb.to_vec())
+    view_palette(view).map_or_else(Vec::new, |p| p.argb.to_vec())
 }
 
 pub(super) fn shp_index_of(view: &PictureView, rgb: u32) -> i32 {
-    let Some(header) = view_header(view) else {
+    let Some(palette) = view_palette(view) else {
         return -1;
     };
-    let unique = unique_colours(&header.palette);
+    let unique = unique_colours(&palette);
     (1..256usize)
         .find(|&i| unique.argb[i] & 0xFF_FFFF == rgb & 0xFF_FFFF)
         .map_or(-1, |i| i as i32)
@@ -660,8 +669,8 @@ fn kind_at(kind: i32) -> Option<Kind> {
 }
 
 pub(super) fn shp_palette_kind(view: &PictureView) -> i32 {
-    view_header(view).map_or(-1, |header| {
-        let kind = Kind::from_name(&header.palette.name);
+    view_palette(view).map_or(-1, |palette| {
+        let kind = Kind::from_name(&palette.name);
         Kind::ALL
             .iter()
             .position(|&k| k == kind)
@@ -783,7 +792,16 @@ pub(super) fn shp_rebind_palette(view: Pin<&mut PictureView>, path: &QString) ->
         return false;
     };
     commit(view, "Change Palette", |rust| {
-        rebind_rust(rust, choice).map(usize::from)
+        let terrain = rust
+            .session
+            .doc
+            .as_ref()
+            .is_some_and(|d| tmp::tmp_resource(d).is_some());
+        if terrain {
+            tmp::rebind_template(rust, choice).map(usize::from)
+        } else {
+            rebind_rust(rust, choice).map(usize::from)
+        }
     }) >= 0
 }
 
@@ -1002,6 +1020,13 @@ pub(super) use unit::{
     shp_set_save_radar, shp_shadow_detect, shp_shadow_violations,
 };
 
+#[path = "tmp.rs"]
+mod tmp;
+pub(in crate::cxxqt_object) use tmp::decode_tmp;
+pub(super) use tmp::{
+    tmp_info, tmp_land_label, tmp_ramp_label, tmp_sniff_file, tmp_tile_at, tmp_tiles,
+};
+
 #[path = "authoring.rs"]
 mod authoring;
 pub(super) use authoring::{shp_convert, shp_new_document, shp_plan_sheet};
@@ -1025,3 +1050,7 @@ mod authoring_tests;
 #[cfg(test)]
 #[path = "unit_tests.rs"]
 mod unit_tests;
+
+#[cfg(test)]
+#[path = "tmp_tests.rs"]
+mod tmp_tests;

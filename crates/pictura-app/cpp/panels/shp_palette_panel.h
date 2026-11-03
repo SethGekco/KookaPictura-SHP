@@ -87,12 +87,22 @@ public:
     void showCanvasHover(const QPointF& imagePos);
     QString canvasHoverForTest() const;
 
+    // The palette an SHP sheet or a TMP template opened with.
+    struct DocumentPalette {
+        bool valid = false;
+        bool terrain = false;
+        QString name;
+        QString path;
+    };
+    static DocumentPalette paletteOf(PictureView* view);
+
 signals:
     void message(const QString& text);
     // The palette kind of the shown document changed.
     void kindChanged();
 
 private:
+    void showTileHover(int x, int y);
     void pick(int index, bool background);
     void showHover(int index);
     void showForeground();

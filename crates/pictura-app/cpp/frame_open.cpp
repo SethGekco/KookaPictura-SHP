@@ -570,6 +570,8 @@ quint64 PicturaMainWindow::startOpenImagePath(const QString& path)
                          OpenKind::Raster);
     if (shp_sniff_file(path)) {
         shp_set_open_palette(*view, resolveShpPalette(path));
+    } else if (tmp_sniff_file(path)) { // KookaPictura-SHP fork: TMP terrain
+        shp_set_open_palette(*view, resolveTmpPalette(path));
     }
     open_image_start(*view, path);
     return token;

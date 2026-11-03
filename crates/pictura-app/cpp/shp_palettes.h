@@ -20,8 +20,25 @@ namespace pictura {
 // $XDG_STATE_HOME/kooka-pictura/shp.ini, beside the session store.
 QString resolveShpPalette(const QString& shpPath);
 
-void rememberFolderPalette(const QString& shpPath, const QString& palettePath);
-void forgetFolderPalette(const QString& shpPath);
+// A TMP terrain template names no palette either; its theater's iso
+// palette is the one the game draws it with:
+//   1. the terrain palette remembered for the template's folder (kept apart
+//      from the SHP one, since a theater folder holds both);
+//   2. a .pal beside it with the same stem;
+//   3. iso<suffix>.pal (isotem.pal for a .tem, isosno.pal for a .sno, ...)
+//      beside it, then under the palette folders (recursive, any case);
+//   4. the default palette, when its name starts with "iso";
+//   5. none: the built-in grey fallback.
+QString resolveTmpPalette(const QString& tmpPath);
+
+// The theater suffixes TMP templates (and theater SHPs) use.
+const QStringList& theaterSuffixes();
+bool isTheaterPath(const QString& path);
+
+// `terrain`: the TMP palette of the folder rather than the SHP one.
+void rememberFolderPalette(const QString& shpPath, const QString& palettePath,
+                           bool terrain = false);
+void forgetFolderPalette(const QString& shpPath, bool terrain = false);
 
 QStringList shpPaletteFolders();
 void setShpPaletteFolders(const QStringList& folders);

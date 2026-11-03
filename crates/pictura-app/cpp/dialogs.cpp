@@ -269,7 +269,8 @@ const QStringList& openFileFilters()
 {
     static const QStringList filters = {
         QStringLiteral("All Formats (*.PSD *.PSB *.PNG *.JPG *.JPEG *.JPE *.GIF *.BMP "
-                       "*.TIF *.TIFF *.WEBP *.PDF *.PDP *.AI *.EPS *.EPSF *.PS *.SHP)"),
+                       "*.TIF *.TIFF *.WEBP *.PDF *.PDP *.AI *.EPS *.EPSF *.PS *.SHP *.TEM *.SNO "
+                       "*.URB *.UBN *.DES *.LUN *.TMP)"),
         QStringLiteral("Photoshop (*.PSD)"),
         QStringLiteral("Photoshop Large Format (*.PSB)"),
         QStringLiteral("PNG (*.PNG)"),
@@ -282,6 +283,10 @@ const QStringList& openFileFilters()
         QStringLiteral("Generic PDF (*.PDF *.PDP *.AI)"),
         QStringLiteral("Generic EPS (*.EPS *.EPSF *.PS)"),
         QStringLiteral("Westwood SHP (TS/RA2) (*.SHP)"), // KookaPictura-SHP fork
+        // KookaPictura-SHP fork: TMP terrain and theater SHPs share these
+        // suffixes; the content decides which opens.
+        QStringLiteral("Westwood TMP terrain and theater SHP (*.TEM *.SNO *.URB *.UBN *.DES "
+                       "*.LUN *.TMP)"),
         QStringLiteral("All files (*)"),
     };
     return filters;

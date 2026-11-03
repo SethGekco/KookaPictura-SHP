@@ -21,7 +21,8 @@
 //! - [`resource`] is the private image resource that keeps an SHP
 //!   document's layout, palette and original bytes inside the document.
 //! - [`tmp`] reads and writes TMP isometric terrain templates, keeping
-//!   every byte of a tile the edit did not touch.
+//!   every byte of a tile the edit did not touch; [`terrain`] lays a
+//!   template out as document layers and keeps its `KookaTMP` resource.
 //!
 //! See `README.md` for the format sources.
 
@@ -31,6 +32,7 @@ pub mod palette;
 pub mod resource;
 pub mod sheet;
 mod source;
+pub mod terrain;
 pub mod tmp;
 pub mod unit;
 

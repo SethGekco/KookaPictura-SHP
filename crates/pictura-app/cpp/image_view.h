@@ -493,6 +493,11 @@ public:
         // remapTo[i] (empty: off).
         QVector<QRgb> remapFrom;
         QVector<QRgb> remapTo;
+        // TMP terrain (no cells): tile diamonds and extra blocks to outline,
+        // image space; `activeTile` indexes tileOutlines.
+        QVector<QPolygonF> tileOutlines;
+        QVector<QRectF> extraOutlines;
+        int activeTile = -1;
     };
     void setShpGrid(const ShpGrid& grid);
     const ShpGrid& shpGrid() const { return shpGrid_; }
@@ -704,6 +709,7 @@ private:
     void paintAnnotations(QPainter& painter);
     void paintGuides(QPainter& painter);
     void paintShpGrid(QPainter& painter);
+    void paintTmpOutlines(QPainter& painter);
     void paintShpOnion(QPainter& painter);
     void paintShpOffPalette(QPainter& painter);
     void paintShpShadow(QPainter& painter);

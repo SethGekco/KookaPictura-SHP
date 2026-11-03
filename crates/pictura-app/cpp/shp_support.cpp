@@ -13,6 +13,7 @@
 #include "panels/shp_palette_panel.h"
 #include "panels/shp_playback_panel.h"
 #include "panels/shp_unit_panel.h"
+#include "panels/tmp_tiles_panel.h"
 #include "shp_undo_focus.h"
 #include "tools.h"
 
@@ -104,19 +105,24 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     playback_ = new ShpPlaybackPanel(split);
     palette_ = new ShpPalettePanel(colors, split);
     unit_ = new ShpUnitPanel(frames_, split);
+    tiles_ = new TmpTilesPanel(split);
+    tiles_->hide();
+    split->addWidget(tiles_);
     split->addWidget(frames_);
     split->addWidget(playback_);
     split->addWidget(unit_);
     split->addWidget(palette_);
     split->setStretchFactor(0, 3);
-    split->setStretchFactor(1, 1);
+    split->setStretchFactor(1, 3);
     split->setStretchFactor(2, 1);
     split->setStretchFactor(3, 1);
+    split->setStretchFactor(4, 1);
     dock_->setWidget(split);
     dock_->hide();
     undoFocus_ = new ShpUndoFocus(frames_, this);
     connect(palette_, &ShpPalettePanel::message, this, &ShpSupport::message);
     connect(unit_, &ShpUnitPanel::message, this, &ShpSupport::message);
+    connect(tiles_, &TmpTilesPanel::message, this, &ShpSupport::message);
     // The palette kind decides the shadow and house-color tools.
     connect(palette_, &ShpPalettePanel::kindChanged, unit_, &ShpUnitPanel::refresh);
     connect(unit_, &ShpUnitPanel::generateRequested, this,
@@ -259,12 +265,34 @@ ShpSupport* ShpSupport::of(const QObject* frame)
                  : nullptr;
 }
 
+// Which panels the dock shows: the SHP ones, or the Tiles panel for a TMP
+// template (the Palette panel serves both).
+void ShpSupport::showPanelsFor(bool tmp)
+{
+    frames_->setVisible(!tmp);
+    playback_->setVisible(!tmp);
+    unit_->setVisible(!tmp);
+    tiles_->setVisible(tmp);
+    dock_->setWindowTitle(tmp ? tr("TMP Tiles & Palette") : tr("SHP Frames & Palette"));
+}
+
+bool ShpSupport::westwoodView() const
+{
+    return view_ && (shp_info(*view_).valid || tmp_info(*view_).valid);
+}
+
 void ShpSupport::setView(PictureView* view, ImageView* canvas)
 {
     view_ = view;
-    const bool shp = view && shp_info(*view).valid;
+    const bool sheet = view && shp_info(*view).valid;
+    const bool tmp = view && !sheet && tmp_info(*view).valid;
+    const bool shp = sheet || tmp;
     unit_->setView(view);
     frames_->setView(view, canvas);
+    // After the Frames panel, so the template's outlines are what the
+    // canvas keeps.
+    tiles_->setView(view, canvas);
+    showPanelsFor(tmp);
     // The Palette panel reads out the index under the cursor.
     disconnect(hoverConnection_);
     if (canvas) {
@@ -275,8 +303,8 @@ void ShpSupport::setView(PictureView* view, ImageView* canvas)
     palette_->setView(view);
     undoFocus_->setView(view);
     refreshCommands(shp);
-    prevKey_->setEnabled(shp);
-    nextKey_->setEnabled(shp);
+    prevKey_->setEnabled(sheet);
+    nextKey_->setEnabled(sheet);
     if (shp && !wasShp_) {
         dock_->show();
     }
@@ -286,11 +314,16 @@ void ShpSupport::setView(PictureView* view, ImageView* canvas)
 void ShpSupport::refresh()
 {
     // A document can become an SHP in place (Revert) or stop being one.
-    const bool shp = view_ && shp_info(*view_).valid;
+    const bool sheet = view_ && shp_info(*view_).valid;
+    const bool tmp = view_ && !sheet && tmp_info(*view_).valid;
+    const bool shp = sheet || tmp;
     undoFocus_->refresh();
     refreshCommands(shp);
-    prevKey_->setEnabled(shp);
-    nextKey_->setEnabled(shp);
+    prevKey_->setEnabled(sheet);
+    nextKey_->setEnabled(sheet);
+    if (tiles_->isHidden() == tmp) {
+        showPanelsFor(tmp);
+    }
     if (!dock_->isVisible() && !(shp && !wasShp_)) {
         wasShp_ = shp;
         return;
@@ -302,6 +335,7 @@ void ShpSupport::refresh()
     unit_->refresh();
     frames_->refresh();
     playback_->refresh();
+    tiles_->refresh();
     palette_->refresh();
 }
 
@@ -927,7 +961,7 @@ bool ShpSupport::isSheetTool(ToolId id)
 bool ShpSupport::allowsTool(const QObject* frame, ToolId id)
 {
     ShpSupport* shp = of(frame);
-    if (!shp || !shp->view_ || !shp_info(*shp->view_).valid || !isSheetTool(id)) {
+    if (!shp || !shp->westwoodView() || !isSheetTool(id)) {
         return true;
     }
     shp->message(cropToolReason());
@@ -936,8 +970,8 @@ bool ShpSupport::allowsTool(const QObject* frame, ToolId id)
 
 QString ShpSupport::cropToolReason()
 {
-    return tr("The Crop tools are off for an SHP sheet: every frame is a cell of it. Use "
-              "Image > Frame Size for the frames' canvas.");
+    return tr("The Crop tools are off for an SHP sheet or a TMP template: every frame or tile "
+              "has its place on it. Use Image > Frame Size for an SHP's frames.");
 }
 
 QString ShpSupport::stepRefusal(const QObject* frame, const QString& commandId)
@@ -966,13 +1000,13 @@ bool ShpSupport::isSheetCommand(const QString& id)
 bool ShpSupport::blocks(const QObject* frame, const QString& id)
 {
     const ShpSupport* shp = of(frame);
-    return shp && shp->view_ && shp_info(*shp->view_).valid && isSheetCommand(id);
+    return shp && shp->westwoodView() && isSheetCommand(id);
 }
 
 QString ShpSupport::blockedReason()
 {
-    return tr("An SHP sheet keeps its size, orientation and color mode: every frame is a cell "
-              "of it. Use Frame Size for the frames' canvas.");
+    return tr("An SHP sheet or a TMP template keeps its size, orientation and color mode: "
+              "every frame or tile has its place on it. Use Frame Size for an SHP's frames.");
 }
 
 bool ShpSupport::setWindowFrames(int count)

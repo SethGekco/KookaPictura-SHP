@@ -14,6 +14,9 @@
 //! file, plus the edited ones in its frame store) until the shell pages
 //! them in with `shp_show_frames`.
 //!
+//! TMP terrain templates share the glue (`shp/tmp.rs`): the content decides
+//! which a file is, and the palette queries answer for both.
+//!
 //! The hooks into upstream files are listed in `crates/pictura-shp/HOOKS.md`.
 
 mod imp;
@@ -141,11 +144,79 @@ pub mod ffi {
         remap_last: i32,
     }
 
+    /// A TMP terrain document's template and palette. `valid` is false for
+    /// any other document.
+    #[namespace = "pictura"]
+    struct TmpInfo {
+        valid: bool,
+        /// The template size in tiles.
+        blocks_x: i32,
+        blocks_y: i32,
+        /// The tile size (48x24 or 60x30).
+        cx: i32,
+        cy: i32,
+        /// Slots holding a tile.
+        tiles: i32,
+        /// The canvas.
+        width: i32,
+        height: i32,
+        palette_name: QString,
+        palette_path: QString,
+    }
+
+    /// One tile of a TMP document. Positions are canvas pixels; colors
+    /// `0xRRGGBB`.
+    #[namespace = "pictura"]
+    struct TmpTile {
+        slot: i32,
+        /// The slot's cell in the template grid.
+        col: i32,
+        row: i32,
+        /// The top-left of the tile's cx x cy rectangle (the diamond inside).
+        x: i32,
+        y: i32,
+        height: i32,
+        land: i32,
+        ramp: i32,
+        radar_low: u32,
+        radar_high: u32,
+        flags: u32,
+        /// Whether its Z Tiles layer holds depths for it now.
+        has_z: bool,
+        has_extra: bool,
+        has_extra_z: bool,
+        extra_x: i32,
+        extra_y: i32,
+        extra_w: i32,
+        extra_h: i32,
+        /// Which Extras layer holds the extra (0: "Extras"), -1 for none.
+        extra_layer: i32,
+    }
+
     #[namespace = "pictura"]
     extern "Rust" {
         /// True when `path` holds a TS/RA2 SHP (the whole frame table checks
         /// out); the shell resolves a palette only for these.
         fn shp_sniff_file(path: &QString) -> bool;
+
+        /// The file holds a TMP terrain template (read whole; real ones are
+        /// small).
+        fn tmp_sniff_file(path: &QString) -> bool;
+
+        fn tmp_info(view: &PictureView) -> TmpInfo;
+
+        /// The tiles of a TMP document, in slot order.
+        fn tmp_tiles(view: &PictureView) -> Vec<TmpTile>;
+
+        /// The slot whose diamond (else extra block) covers canvas pixel
+        /// `(x, y)`, or -1.
+        fn tmp_tile_at(view: &PictureView, x: i32, y: i32) -> i32;
+
+        /// The game's name for a land type (several values share one).
+        fn tmp_land_label(land: i32) -> QString;
+
+        /// The slope a ramp type names.
+        fn tmp_ramp_label(ramp: i32) -> QString;
 
         /// The `.pal` the next `open_image_start` on this view uses for an
         /// SHP; empty for the built-in grey fallback.

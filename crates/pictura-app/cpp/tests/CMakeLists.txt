@@ -8,6 +8,7 @@ set(PICTURA_QT_TESTS
     tst_shp
     tst_shp_view
     tst_shp_unit
+    tst_tmp
     tst_multi_file_open
     tst_document_api
     tst_document_session

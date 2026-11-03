@@ -254,6 +254,22 @@ void ShpPalettePanel::setKindOf(PictureView* view, int kind)
     }
 }
 
+// The palette of an SHP sheet or a TMP template (`valid` false for any
+// other document).
+ShpPalettePanel::DocumentPalette ShpPalettePanel::paletteOf(PictureView* view)
+{
+    if (!view) {
+        return {};
+    }
+    if (const ShpInfo info = shp_info(*view); info.valid) {
+        return {true, false, info.palette_name, info.palette_path};
+    }
+    if (const TmpInfo info = tmp_info(*view); info.valid) {
+        return {true, true, info.palette_name, info.palette_path};
+    }
+    return {};
+}
+
 void ShpPalettePanel::setView(PictureView* view)
 {
     view_ = view;
@@ -265,22 +281,20 @@ void ShpPalettePanel::refresh()
     unique_.clear();
     source_.clear();
     paletteName_.clear();
-    if (view_) {
-        const ShpInfo info = shp_info(*view_);
-        if (info.valid) {
-            for (const uint32_t c : shp_palette_unique(*view_)) {
-                unique_.append(QRgb(c));
-            }
-            for (const uint32_t c : shp_palette_source(*view_)) {
-                source_.append(QRgb(c));
-            }
-            paletteName_ = info.palette_name;
+    const DocumentPalette info = paletteOf(view_);
+    if (info.valid) {
+        for (const uint32_t c : shp_palette_unique(*view_)) {
+            unique_.append(QRgb(c));
         }
+        for (const uint32_t c : shp_palette_source(*view_)) {
+            source_.append(QRgb(c));
+        }
+        paletteName_ = info.name;
     }
     const bool shp = !unique_.isEmpty();
     grid_->setColours(unique_);
     name_->setText(shp ? tr("Palette: %1").arg(paletteName_) : tr("Not an SHP document"));
-    name_->setToolTip(view_ && shp ? QString(shp_info(*view_).palette_path) : QString());
+    name_->setToolTip(shp ? info.path : QString());
     load_->setEnabled(shp);
     more_->setEnabled(true);
     forFolder_->setEnabled(shp);
@@ -336,6 +350,10 @@ void ShpPalettePanel::showCanvasHover(const QPointF& imagePos)
     const ShpInfo info = view_ ? shp_info(*view_) : ShpInfo{};
     const int x = int(std::floor(imagePos.x()));
     const int y = int(std::floor(imagePos.y()));
+    if (view_ && !info.valid && tmp_info(*view_).valid) {
+        showTileHover(x, y);
+        return;
+    }
     if (!info.valid || info.cols <= 0 || x < 0 || y < 0 || x >= view_->document_width()
         || y >= view_->document_height()) {
         canvasHover_->clear();
@@ -367,6 +385,32 @@ void ShpPalettePanel::showCanvasHover(const QPointF& imagePos)
         const QString role = shp_kind_role(kindOf(view_), index);
         if (!role.isEmpty()) {
             text += QStringLiteral("  ") + role;
+        }
+    }
+    canvasHover_->setText(text);
+}
+
+// A TMP template: the tile under the cursor and the index of the active
+// layer's pixel there (the Tiles and Extras layers hold colors; a Z layer
+// reads as its depth).
+void ShpPalettePanel::showTileHover(int x, int y)
+{
+    if (x < 0 || y < 0 || x >= view_->document_width() || y >= view_->document_height()) {
+        canvasHover_->clear();
+        return;
+    }
+    const int slot = tmp_tile_at(*view_, x, y);
+    QString text = slot >= 0 ? tr("Tile %1 (%2, %3): ").arg(slot).arg(x).arg(y)
+                             : tr("Canvas (%1, %2), no tile: ").arg(x).arg(y);
+    const quint32 argb = view_->composite_argb(x, y);
+    const int alpha = int(argb >> 24);
+    const int index = alpha == 0 ? 0 : alpha == 255 ? shp_index_of(*view_, argb & 0xFFFFFFu) : -1;
+    if (index < 0) {
+        text += tr("off-palette %1, alpha %2").arg(hex(argb)).arg(alpha);
+    } else {
+        text += tr("index %1").arg(index);
+        if (index > 0 && index < source_.size()) {
+            text += QStringLiteral("  ") + hex(source_.at(index));
         }
     }
     canvasHover_->setText(text);
@@ -404,7 +448,7 @@ bool ShpPalettePanel::loadPalette(const QString& path, bool forFolder)
     }
     const QString document = document_api::filePath(*view_);
     if (forFolder && !document.isEmpty()) {
-        rememberFolderPalette(document, path);
+        rememberFolderPalette(document, path, paletteOf(view_).terrain);
     }
     refresh();
     return true;
@@ -415,8 +459,8 @@ void ShpPalettePanel::choosePalette()
     if (!view_) {
         return;
     }
-    QString dir = QFileInfo(shp_info(*view_).palette_path).absolutePath();
-    if (QString(shp_info(*view_).palette_path).isEmpty()) {
+    QString dir = QFileInfo(paletteOf(view_).path).absolutePath();
+    if (paletteOf(view_).path.isEmpty()) {
         const QStringList folders = shpPaletteFolders();
         dir = folders.isEmpty() ? QFileInfo(document_api::filePath(*view_)).absolutePath()
                                 : folders.first();
@@ -431,7 +475,8 @@ void ShpPalettePanel::choosePalette()
 void ShpPalettePanel::showMenu()
 {
     QMenu menu(this);
-    const QString current = view_ ? QString(shp_info(*view_).palette_path) : QString();
+    const QString current = paletteOf(view_).path;
+    const bool terrain = paletteOf(view_).terrain;
     QAction* makeDefault = menu.addAction(tr("Use as Default Palette"));
     makeDefault->setEnabled(!current.isEmpty());
     connect(makeDefault, &QAction::triggered, this, [current] { setDefaultShpPalette(current); });
@@ -452,7 +497,8 @@ void ShpPalettePanel::showMenu()
     const QString document = view_ ? document_api::filePath(*view_) : QString();
     QAction* forget = menu.addAction(tr("Forget This Folder's Palette"));
     forget->setEnabled(!document.isEmpty());
-    connect(forget, &QAction::triggered, this, [document] { forgetFolderPalette(document); });
+    connect(forget, &QAction::triggered, this,
+            [document, terrain] { forgetFolderPalette(document, terrain); });
     menu.exec(more_->mapToGlobal(QPoint(0, more_->height())));
 }
 
