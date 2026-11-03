@@ -15,6 +15,8 @@
 //! modding tools). It is detected first: read as binary, its ASCII digits
 //! would make a palette of confident nonsense.
 
+use std::ops::RangeInclusive;
+
 /// 256 colours as `0xAARRGGBB`. Index 0 is transparent (alpha 0).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Palette {
@@ -254,20 +256,90 @@ impl Role {
     }
 }
 
+/// What a palette is for, which decides the indices with a role. Named
+/// after the stock palette families: unit (`unittem.pal` and the theater
+/// palettes; also the default), terrain (`iso*.pal`), animation
+/// (`anim.pal`) and cameo (`cameo.pal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// 0 transparent, 1 shadow, 16-31 house-colour remap, 240-254 unlit.
+    Unit,
+    /// Only 0 (transparent).
+    Terrain,
+    /// 0 transparent and 1 shadow (an animation with `Shadow=yes` keeps
+    /// shadow frames like a unit); no remap ramp.
+    Anim,
+    /// Only 0: a cameo is a picture with no shadow and no house colour.
+    Cameo,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 4] = [Kind::Unit, Kind::Terrain, Kind::Anim, Kind::Cameo];
+
+    /// The kind a palette file name (`unittem.pal`, `ISOSNO.PAL`) suggests:
+    /// `iso*` terrain, `anim*` animation, any name with `cameo` a cameo,
+    /// anything else a unit palette.
+    pub fn from_name(name: &str) -> Kind {
+        let name = name.to_ascii_lowercase();
+        if name.starts_with("iso") {
+            Kind::Terrain
+        } else if name.contains("cameo") {
+            Kind::Cameo
+        } else if name.starts_with("anim") {
+            Kind::Anim
+        } else {
+            Kind::Unit
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Unit => "unit",
+            Kind::Terrain => "terrain (iso)",
+            Kind::Anim => "animation",
+            Kind::Cameo => "cameo",
+        }
+    }
+
+    /// The shadow index, when this kind has one.
+    pub fn shadow(self) -> Option<u8> {
+        matches!(self, Kind::Unit | Kind::Anim).then_some(1)
+    }
+
+    /// The house-colour remap ramp, when this kind has one.
+    pub fn remap(self) -> Option<RangeInclusive<u8>> {
+        (self == Kind::Unit).then_some(16..=31)
+    }
+
+    /// The entries drawn unaffected by lighting, when this kind has them.
+    pub fn unlit(self) -> Option<RangeInclusive<u8>> {
+        (self == Kind::Unit).then_some(240..=254)
+    }
+
+    /// The role of `index` in a palette of this kind.
+    pub fn role(self, index: u8) -> Role {
+        let within = |r: Option<RangeInclusive<u8>>| r.is_some_and(|r| r.contains(&index));
+        if index == 0 {
+            Role::Transparent
+        } else if self.shadow() == Some(index) {
+            Role::Shadow
+        } else if within(self.remap()) {
+            Role::Remap
+        } else if within(self.unlit()) {
+            Role::Unlit
+        } else {
+            Role::Plain
+        }
+    }
+}
+
 /// True for a terrain palette (`iso*.pal`), which reserves only index 0.
 pub fn is_terrain(name: &str) -> bool {
-    name.to_ascii_lowercase().starts_with("iso")
+    Kind::from_name(name) == Kind::Terrain
 }
 
 /// The role of `index` in the palette called `name` (a file name such as
-/// `unittem.pal`; any non-terrain palette uses the unit conventions).
+/// `unittem.pal`), by the kind the name suggests ([`Kind::from_name`]).
 pub fn role(name: &str, index: u8) -> Role {
-    match index {
-        0 => Role::Transparent,
-        _ if is_terrain(name) => Role::Plain,
-        1 => Role::Shadow,
-        16..=31 => Role::Remap,
-        240..=254 => Role::Unlit,
-        _ => Role::Plain,
-    }
+    Kind::from_name(name).role(index)
 }

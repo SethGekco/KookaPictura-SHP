@@ -131,6 +131,16 @@ pub mod ffi {
         average: u32,
     }
 
+    /// A palette kind: its name, its shadow index (-1 none) and its
+    /// house-color remap ramp (`remap_first..=remap_last`, -1 none).
+    #[namespace = "pictura"]
+    struct ShpKind {
+        label: QString,
+        shadow: i32,
+        remap_first: i32,
+        remap_last: i32,
+    }
+
     #[namespace = "pictura"]
     extern "Rust" {
         /// True when `path` holds a TS/RA2 SHP (the whole frame table checks
@@ -154,9 +164,18 @@ pub mod ffi {
         /// is off-palette.
         fn shp_index_of(view: &PictureView, rgb: u32) -> i32;
 
-        /// What the game does with `index` under this palette, e.g. "house
-        /// colour remap"; empty for an ordinary index.
-        fn shp_role(view: &PictureView, index: i32) -> QString;
+        /// The palette kind the document's palette name suggests, as an
+        /// index into `Kind::ALL` (0 unit, 1 terrain, 2 animation, 3
+        /// cameo); -1 for a document that is not an SHP. The shell keeps a
+        /// per-document override.
+        fn shp_palette_kind(view: &PictureView) -> i32;
+
+        /// What palette kind `kind` reserves (unit for an unknown kind).
+        fn shp_kind(kind: i32) -> ShpKind;
+
+        /// What the game does with `index` under a palette of kind `kind`,
+        /// e.g. "house colour remap"; empty for an ordinary index.
+        fn shp_kind_role(kind: i32, index: i32) -> QString;
 
         /// Scan the document the way Save will.
         fn shp_check(view: &PictureView) -> ShpCheck;

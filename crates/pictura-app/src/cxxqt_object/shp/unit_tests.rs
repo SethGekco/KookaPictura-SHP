@@ -293,3 +293,24 @@ fn the_radar_readout_reads_frames_off_a_paged_sheet_and_added_frames() {
     let added = radar_info(doc(&whole), 0);
     assert!(!added.has_file && !added.has_average);
 }
+
+#[test]
+fn palette_kinds_reach_the_shell_with_their_roles() {
+    use super::{shp_kind, shp_kind_role};
+    let unit = shp_kind(0);
+    assert_eq!(unit.label.to_string(), "unit");
+    assert_eq!(
+        (unit.shadow, unit.remap_first, unit.remap_last),
+        (1, 16, 31)
+    );
+    for (kind, shadow) in [(1, -1), (2, 1), (3, -1)] {
+        let k = shp_kind(kind);
+        assert_eq!((k.shadow, k.remap_first, k.remap_last), (shadow, -1, -1));
+    }
+    assert_eq!(shp_kind(9).label.to_string(), "unit", "unknown is unit");
+    assert_eq!(shp_kind_role(0, 20).to_string(), "house colour remap");
+    assert_eq!(shp_kind_role(1, 1).to_string(), "");
+    assert_eq!(shp_kind_role(2, 1).to_string(), "shadow");
+    assert_eq!(shp_kind_role(3, 0).to_string(), "transparent");
+    assert_eq!(shp_kind_role(-1, 1).to_string(), "");
+}

@@ -117,6 +117,8 @@ ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
     undoFocus_ = new ShpUndoFocus(frames_, this);
     connect(palette_, &ShpPalettePanel::message, this, &ShpSupport::message);
     connect(unit_, &ShpUnitPanel::message, this, &ShpSupport::message);
+    // The palette kind decides the shadow and house-color tools.
+    connect(palette_, &ShpPalettePanel::kindChanged, unit_, &ShpUnitPanel::refresh);
     connect(unit_, &ShpUnitPanel::generateRequested, this,
             [this](const QList<int>& art, int dx, int dy, double skew) {
                 generateShadows(art, dx, dy, skew);

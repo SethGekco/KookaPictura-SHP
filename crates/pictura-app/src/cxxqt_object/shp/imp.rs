@@ -2,7 +2,7 @@
 //! The SHP document glue: open as a sheet, the palette queries, the
 //! recorded snap / clear / rebind edits, and the byte-preserving save.
 
-use super::ffi::{ShpCheck, ShpInfo, ShpOffPoints, ShpPlan, ShpThumb};
+use super::ffi::{ShpCheck, ShpInfo, ShpKind, ShpOffPoints, ShpPlan, ShpThumb};
 use super::*;
 
 use crate::cxxqt_object::edit::Edit;
@@ -15,7 +15,7 @@ use core::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 use pictura_core::{BitDepth, BlendMode, ColorMode, Document, Layer};
-use pictura_shp::palette::{fallback_palette, read_palette, role, unique_colours, Palette};
+use pictura_shp::palette::{fallback_palette, read_palette, unique_colours, Kind, Palette};
 use pictura_shp::resource::{self, find_block, set_block, Header, ShpResource};
 use pictura_shp::sheet::{self, Layout};
 use pictura_shp::{build_mapped, build_preserving, frame_canvas, sniff, FramePlane, Source};
@@ -647,9 +647,37 @@ pub(super) fn shp_index_of(view: &PictureView, rgb: u32) -> i32 {
         .map_or(-1, |i| i as i32)
 }
 
-pub(super) fn shp_role(view: &PictureView, index: i32) -> QString {
-    match (view_header(view), u8::try_from(index)) {
-        (Some(header), Ok(index)) => QString::from(role(&header.palette.name, index).label()),
+/// `Kind::ALL[kind]`, when `kind` is one.
+fn kind_at(kind: i32) -> Option<Kind> {
+    usize::try_from(kind)
+        .ok()
+        .and_then(|k| Kind::ALL.get(k).copied())
+}
+
+pub(super) fn shp_palette_kind(view: &PictureView) -> i32 {
+    view_header(view).map_or(-1, |header| {
+        let kind = Kind::from_name(&header.palette.name);
+        Kind::ALL
+            .iter()
+            .position(|&k| k == kind)
+            .map_or(0, |k| k as i32)
+    })
+}
+
+pub(super) fn shp_kind(kind: i32) -> ShpKind {
+    let kind = kind_at(kind).unwrap_or(Kind::Unit);
+    let remap = kind.remap();
+    ShpKind {
+        label: QString::from(kind.label()),
+        shadow: kind.shadow().map_or(-1, i32::from),
+        remap_first: remap.as_ref().map_or(-1, |r| i32::from(*r.start())),
+        remap_last: remap.as_ref().map_or(-1, |r| i32::from(*r.end())),
+    }
+}
+
+pub(super) fn shp_kind_role(kind: i32, index: i32) -> QString {
+    match (kind_at(kind), u8::try_from(index)) {
+        (Some(kind), Ok(index)) => QString::from(kind.role(index).label()),
         _ => QString::default(),
     }
 }

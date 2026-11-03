@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // KookaPictura-SHP fork: the unit tools of SHP documents (the shadow half,
-// the house-color preview, the radar color).
+// the house-color preview, the radar color, the palette kinds).
 // Every sprite and palette here is generated; no game file is used.
 
 #include <QtTest/QtTest>
@@ -8,6 +8,7 @@
 #include "frame.h"
 #include "image_view.h"
 #include "panels/shp_frames_panel.h"
+#include "panels/shp_palette_panel.h"
 #include "panels/shp_unit_panel.h"
 #include "shp_palettes.h"
 #include "shp_support.h"
@@ -136,6 +137,7 @@ private slots:
     void aPagedSpriteGeneratesShadowsOffTheSheet();
     void housePreviewRecolorsTheRemapViewOnly();
     void radarColorsAreKeptUnlessRecomputeIsOn();
+    void thePaletteKindDecidesRolesAndUnitTools();
 };
 
 void ShpUnitTest::init()
@@ -526,6 +528,80 @@ void ShpUnitTest::radarColorsAreKeptUnlessRecomputeIsOn()
     const QString again = dir_.filePath(QStringLiteral("radar-again.shp"));
     QVERIFY(window_->saveActiveAs(again));
     QCOMPARE(readFile(again), unitSprite());
+}
+
+void ShpUnitTest::thePaletteKindDecidesRolesAndUnitTools()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    pictura::PictureView* view = open(unit_);
+    QVERIFY(view);
+    pictura::ShpPalettePanel* panel = support_->palette();
+    pictura::ShpUnitPanel* unit = support_->unit();
+    QComboBox* kinds = panel->kindBox();
+    const auto hover = [panel](int index) {
+        emit panel->grid()->hovered(index);
+        return panel->readoutForTest();
+    };
+    const auto choose = [kinds](int kind) {
+        const int row = kinds->findData(kind);
+        kinds->setCurrentIndex(row);
+        emit kinds->activated(row);
+    };
+    // gtnk.pal: a unit palette by its name.
+    QTRY_COMPARE(unit->shadowHalf(), kArt);
+    QCOMPARE(kinds->currentIndex(), 0);
+    QCOMPARE(kinds->currentText(), QStringLiteral("Auto (unit)"));
+    QCOMPARE(pictura::ShpPalettePanel::kindOf(view), 0);
+    QVERIFY(hover(1).contains(QStringLiteral("shadow")));
+    QVERIFY(hover(20).contains(QStringLiteral("house colour remap")));
+    QVERIFY(unit->houseToggle()->isEnabled());
+    QVERIFY(unit->action(QStringLiteral("generate"))->isEnabled());
+
+    // Terrain: index 1 is plain, no shadow half, the shadow and house tools
+    // are off and refuse.
+    choose(1);
+    QCOMPARE(pictura::ShpPalettePanel::kindOf(view), 1);
+    QVERIFY(!hover(1).contains(QStringLiteral("shadow")));
+    QVERIFY(!hover(20).contains(QStringLiteral("remap")));
+    QVERIFY(hover(0).contains(QStringLiteral("transparent")));
+    QCOMPARE(unit->shadowHalf(), 0);
+    QCOMPARE(support_->frames()->frameCount(), 2 * kArt);
+    QVERIFY(!unit->shadowToggle()->isEnabled());
+    QVERIFY(!unit->houseToggle()->isEnabled());
+    QVERIFY(!unit->action(QStringLiteral("generate"))->isEnabled());
+    QVERIFY(!unit->action(QStringLiteral("clearAll"))->isEnabled());
+    QVERIFY(unit->shadowReadout()->text().contains(QStringLiteral("no shadow index")));
+    QCOMPARE(support_->generateShadows({0}, 0, 0, 0.0), -1);
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("no shadow index")));
+    QCOMPARE(support_->clearShadows({kArt}), -1);
+    QCOMPARE(pictura::shp_info(*view).total, 2 * kArt);
+
+    // Animation: the shadow half is back, still no house color.
+    choose(2);
+    QCOMPARE(unit->shadowHalf(), kArt);
+    QVERIFY(unit->action(QStringLiteral("generate"))->isEnabled());
+    QVERIFY(!unit->houseToggle()->isEnabled());
+    QVERIFY(hover(1).contains(QStringLiteral("shadow")));
+
+    // The kind is the view's; it changes nothing in the document.
+    const QString saved = dir_.filePath(QStringLiteral("kind.shp"));
+    QVERIFY(window_->saveActiveAs(saved));
+    QCOMPARE(readFile(saved), unitSprite());
+    choose(-1);
+    QCOMPARE(pictura::ShpPalettePanel::kindOf(view), 0);
+    QVERIFY(unit->houseToggle()->isEnabled());
+
+    // A cameo palette by its name: no shadow frames, even with a split.
+    const QString cameo = dir_.filePath(QStringLiteral("xcameo.shp"));
+    QVERIFY(writeFile(cameo, unitSprite()));
+    QVERIFY(writeFile(dir_.filePath(QStringLiteral("xcameo.pal")), palette()));
+    pictura::PictureView* picture = open(cameo);
+    QVERIFY(picture);
+    QTRY_COMPARE(pictura::ShpPalettePanel::kindOf(picture), 3);
+    QCOMPARE(kinds->currentText(), QStringLiteral("Auto (cameo)"));
+    QCOMPARE(unit->shadowHalf(), 0);
+    QVERIFY(!unit->houseToggle()->isEnabled());
+    pictura::forgetFolderPalette(cameo);
 }
 
 QTEST_MAIN(ShpUnitTest)

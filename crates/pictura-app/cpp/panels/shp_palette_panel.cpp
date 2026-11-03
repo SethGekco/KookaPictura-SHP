@@ -11,6 +11,7 @@
 #include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
 #include <QtWidgets/QCheckBox>
+#include <QtWidgets/QComboBox>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QLabel>
@@ -28,6 +29,7 @@ namespace pictura {
 namespace {
 
 constexpr int kSide = 16;
+const char* const kKindProperty = "shpPaletteKind";
 
 QString hex(QRgb c)
 {
@@ -173,6 +175,33 @@ ShpPalettePanel::ShpPalettePanel(ColorState* colors, QWidget* parent)
     top->addWidget(more_);
     layout->addLayout(top);
 
+    auto* kindRow = new QHBoxLayout;
+    auto* kindLabel = new QLabel(tr("Kind:"), this);
+    kind_ = new QComboBox(this);
+    kind_->setObjectName(QStringLiteral("shpPaletteKind"));
+    kind_->setToolTip(
+        tr("Which indices the game reserves: unit (0 transparent, 1 shadow, 16-31 house "
+           "color, 240-254 unlit), terrain and cameo (0 only), animation (0 and the 1 "
+           "shadow). Auto goes by the palette's name. The shadow and house-color tools "
+           "follow it."));
+    kind_->addItem(QString(), -1);
+    kind_->addItem(tr("Unit"), 0);
+    kind_->addItem(tr("Terrain (iso)"), 1);
+    kind_->addItem(tr("Animation"), 2);
+    kind_->addItem(tr("Cameo"), 3);
+    kindLabel->setBuddy(kind_);
+    kindRow->addWidget(kindLabel);
+    kindRow->addWidget(kind_, 1);
+    layout->addLayout(kindRow);
+    connect(kind_, &QComboBox::activated, this, [this](int row) {
+        if (!view_) {
+            return;
+        }
+        setKindOf(view_, kind_->itemData(row).toInt());
+        showHover(-1);
+        emit kindChanged();
+    });
+
     forFolder_ = new QCheckBox(tr("Use for this folder"), this);
     forFolder_->setChecked(true);
     forFolder_->setToolTip(tr("Open other SHPs in this folder with the loaded palette"));
@@ -205,6 +234,26 @@ ShpPalettePanel::ShpPalettePanel(ColorState* colors, QWidget* parent)
     refresh();
 }
 
+int ShpPalettePanel::kindOf(PictureView* view)
+{
+    if (!view) {
+        return -1;
+    }
+    const int named = shp_palette_kind(*view);
+    if (named < 0) {
+        return -1;
+    }
+    const QVariant own = view->property(kKindProperty);
+    return own.isValid() ? own.toInt() : named;
+}
+
+void ShpPalettePanel::setKindOf(PictureView* view, int kind)
+{
+    if (view) {
+        view->setProperty(kKindProperty, kind < 0 ? QVariant() : QVariant(kind));
+    }
+}
+
 void ShpPalettePanel::setView(PictureView* view)
 {
     view_ = view;
@@ -235,6 +284,15 @@ void ShpPalettePanel::refresh()
     load_->setEnabled(shp);
     more_->setEnabled(true);
     forFolder_->setEnabled(shp);
+    {
+        const QSignalBlocker block(kind_);
+        const int named = view_ && shp ? shp_palette_kind(*view_) : -1;
+        kind_->setItemText(0, named < 0 ? tr("Auto")
+                                        : tr("Auto (%1)").arg(QString(shp_kind(named).label)));
+        const QVariant own = view_ ? view_->property(kKindProperty) : QVariant();
+        kind_->setCurrentIndex(own.isValid() ? kind_->findData(own.toInt()) : 0);
+        kind_->setEnabled(shp);
+    }
     showHover(-1);
     showForeground();
 }
@@ -263,7 +321,7 @@ void ShpPalettePanel::showHover(int index)
         readout_->setText(unique_.isEmpty() ? QString() : tr("Hover an entry for its index"));
         return;
     }
-    const QString role = shp_role(*view_, index);
+    const QString role = shp_kind_role(kindOf(view_), index);
     QString text = tr("Index %1  %2").arg(index).arg(hex(source_.at(index)));
     if (!role.isEmpty()) {
         text += QStringLiteral("  ") + role;
@@ -306,7 +364,7 @@ void ShpPalettePanel::showCanvasHover(const QPointF& imagePos)
         if (index > 0 && index < source_.size()) {
             text += QStringLiteral("  ") + hex(source_.at(index));
         }
-        const QString role = shp_role(*view_, index);
+        const QString role = shp_kind_role(kindOf(view_), index);
         if (!role.isEmpty()) {
             text += QStringLiteral("  ") + role;
         }

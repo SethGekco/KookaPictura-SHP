@@ -797,3 +797,18 @@ Phase 3, unit tools (recorded as each piece landed):
   (`shp_set_save_radar`), like the open-palette request. The "in the file"
   value stays the opened file's: after a recompute save, turning the
   option off again saves the opened file's colors, not the recomputed ones.
+- **Palette kinds** (`palette::Kind`; Palette panel "Kind", per document,
+  "Auto (x)" by the palette's name): unit (the default and the theater
+  palettes: 0 transparent, 1 shadow, 16-31 house-color remap, 240-254
+  unlit), terrain (`iso*`: 0 only), animation (`anim*`: 0 and the 1
+  shadow, no remap; an animation with `Shadow=yes` keeps shadow frames like
+  a unit) and cameo (any name with `cameo`: 0 only). Ochre's
+  `palettes.ini` has only the unit and `iso` tables; the animation and
+  cameo rows are this fork's reading of how the game uses those palettes.
+  The hover readout and both hover lines use the kind's roles. The shadow
+  tools apply only to kinds with a shadow index: for terrain and cameo the
+  box and actions are off, Generate refuses with the reason, and no shadow
+  half is shown or checked on save (a cameo's frame count can be even by
+  chance). The house-color preview takes the kind's ramp and is off for
+  kinds without one. The kind is view state: the document and saved bytes
+  do not change (tested).

@@ -218,6 +218,51 @@ fn roles_follow_the_palette_kind() {
     assert_eq!(role("isotem.pal", 1), Role::Plain);
     assert_eq!(role("ISOSNO.PAL", 20), Role::Plain);
     assert_eq!(role("isotem.pal", 0), Role::Transparent);
+    // Animation palettes keep the shadow only; cameos keep nothing but 0.
+    assert_eq!(role("anim.pal", 1), Role::Shadow);
+    assert_eq!(role("anim.pal", 20), Role::Plain);
+    assert_eq!(role("anim.pal", 245), Role::Plain);
+    assert_eq!(role("CAMEO.PAL", 1), Role::Plain);
+    assert_eq!(role("cameo.pal", 0), Role::Transparent);
+}
+
+#[test]
+fn palette_kinds_come_from_the_name_and_carry_their_index_roles() {
+    use pictura_shp::palette::Kind;
+    let kinds: Vec<Kind> = [
+        "unittem.pal",
+        "ISOURB.PAL",
+        "anim.pal",
+        "cameo.pal",
+        "x.pal",
+    ]
+    .iter()
+    .map(|n| Kind::from_name(n))
+    .collect();
+    assert_eq!(
+        kinds,
+        [
+            Kind::Unit,
+            Kind::Terrain,
+            Kind::Anim,
+            Kind::Cameo,
+            Kind::Unit
+        ]
+    );
+    assert_eq!(Kind::from_name("tem_cameo.pal"), Kind::Cameo);
+    assert_eq!(Kind::Unit.shadow(), Some(1));
+    assert_eq!(Kind::Anim.shadow(), Some(1));
+    assert_eq!(Kind::Terrain.shadow(), None);
+    assert_eq!(Kind::Cameo.shadow(), None);
+    assert_eq!(Kind::Unit.remap(), Some(16..=31));
+    assert!(Kind::ALL[1..].iter().all(|k| k.remap().is_none()));
+    // A kind's role table is what an override reads, whatever the name.
+    assert_eq!(Kind::Terrain.role(1), Role::Plain);
+    assert_eq!(Kind::Unit.role(1), Role::Shadow);
+    for kind in Kind::ALL {
+        assert_eq!(kind.role(0), Role::Transparent);
+        assert_eq!(kind.role(255), Role::Plain);
+    }
 }
 
 #[test]

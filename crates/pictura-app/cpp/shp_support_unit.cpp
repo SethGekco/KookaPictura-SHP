@@ -5,6 +5,7 @@
 #include "shp_support.h"
 
 #include "panels/shp_frames_panel.h"
+#include "panels/shp_palette_panel.h"
 #include "panels/shp_unit_panel.h"
 
 #include <QtWidgets/QMainWindow>
@@ -62,6 +63,11 @@ int ShpSupport::generateShadows(const QList<int>& art, int dx, int dy, double sk
     if (!view || !shp_info(*view).valid) {
         gateMessage_ = tr("no SHP document");
         return -1;
+    }
+    if (!ShpUnitPanel::kindHasShadows(view)) {
+        return unitRefused(tr("A %1 palette has no shadow index; set the palette kind to Unit "
+                              "or Animation in the Palette panel.")
+                               .arg(QString(shp_kind(ShpPalettePanel::kindOf(view)).label)));
     }
     const ShpInfo info = shp_info(*view);
     const bool paged = info.frames < info.total;

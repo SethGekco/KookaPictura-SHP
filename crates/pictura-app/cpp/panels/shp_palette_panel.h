@@ -7,6 +7,7 @@
 #include <QtWidgets/QWidget>
 
 class QCheckBox;
+class QComboBox;
 class QLabel;
 class QToolButton;
 
@@ -53,8 +54,10 @@ private:
 // Click an entry for the foreground, Alt-click for the background: the
 // colour is set exactly (the sheet's own RGB), so a Pencil stroke with it
 // saves that index. Hovering reads out the index, its colour in the .pal
-// and what the game does with it. Load Palette rebinds the document by
-// index as one undoable "Change Palette" step.
+// and what the game does with it under the palette's kind (unit, terrain,
+// animation, cameo: "Auto" goes by the palette's name, or pick one per
+// document). Load Palette rebinds the document by index as one undoable
+// "Change Palette" step.
 class ShpPalettePanel : public QWidget {
     Q_OBJECT
 
@@ -69,6 +72,13 @@ public:
     // readout) when it is not a palette.
     bool loadPalette(const QString& path, bool forFolder);
 
+    // The palette kind of `view` (an index into the kinds of shp_kind): the
+    // document's own pick, else the one its palette name suggests; -1 for
+    // no SHP. `kind` -1 goes back to the name's.
+    static int kindOf(PictureView* view);
+    static void setKindOf(PictureView* view, int kind);
+    QComboBox* kindBox() const { return kind_; }
+
     ShpPaletteGrid* grid() const { return grid_; }
     QString readoutForTest() const;
     QString foregroundReadoutForTest() const;
@@ -79,6 +89,8 @@ public:
 
 signals:
     void message(const QString& text);
+    // The palette kind of the shown document changed.
+    void kindChanged();
 
 private:
     void pick(int index, bool background);
@@ -100,6 +112,7 @@ private:
     QToolButton* load_ = nullptr;
     QToolButton* more_ = nullptr;
     QCheckBox* forFolder_ = nullptr;
+    QComboBox* kind_ = nullptr;
 };
 
 } // namespace pictura

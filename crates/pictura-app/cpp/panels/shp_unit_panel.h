@@ -33,9 +33,12 @@ class ShpFramesPanel;
 // Frames panel marks those frames and Save warns about shadow frames that
 // hold colors other than index 0 and 1. Generate casts shadows from the
 // art (index 1, with an offset and a lean); Clear empties shadow frames.
-// The underlay shows each frame's shadow under it, view only.
+// The underlay shows each frame's shadow under it, view only. All of it
+// follows the palette kind (Palette panel): a terrain or cameo palette has
+// no shadow index, so the tools are off there.
 //
-// House color: the remap indices (16-31 of a unit palette) previewed in a
+// House color: the remap indices (the kind's ramp, 16-31 of a unit palette;
+// none for other kinds) previewed in a
 // multiplayer color or one of the user's, view only and approximate (the
 // palette's own shading of the ramp, not the game's formula).
 //
@@ -54,6 +57,9 @@ public:
     // The first shadow frame of `view` while its second half counts as
     // shadow frames (an even frame count), else 0.
     static int shadowHalfOf(PictureView* view);
+    // Whether `view`'s palette kind has a shadow index (unit, animation):
+    // the shadow tools work only then.
+    static bool kindHasShadows(PictureView* view);
     // Whether `view`'s second half counts as shadow frames; decided from
     // the pixels (shp_shadow_detect) the first time it is asked.
     static bool shadowsOf(PictureView* view);

@@ -51,9 +51,11 @@ effect art directly.
   approximation of the game's ramp). It also shows each frame's radar
   (minimap) color, as the file has it and as the average of its pixels now;
   Save keeps the file's radar colors unless "Recompute radar colors on
-  save" is on.
+  save" is on. The Palette panel's "Kind" (unit, terrain, animation, cameo;
+  Auto goes by the palette's name) decides which indices have a role in the
+  hover readout and whether the shadow and house-color tools apply.
   Checked against 4,819 real SHPs: every valid one saves back
-  byte-identical. Next: palette kinds (see [`SHP-PLAN.md`](SHP-PLAN.md)).
+  byte-identical. Next: TMP terrain (see [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
   opens SHPs as sprite sheets (a small converter saves them back). Do not

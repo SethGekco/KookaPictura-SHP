@@ -4,6 +4,7 @@
 #include "panels/shp_unit_panel.h"
 
 #include "panels/shp_frames_panel.h"
+#include "panels/shp_palette_panel.h"
 
 #include <QtGui/QAction>
 #include <QtWidgets/QCheckBox>
@@ -302,9 +303,15 @@ void ShpUnitPanel::setShadowsOf(PictureView* view, bool on)
     }
 }
 
+bool ShpUnitPanel::kindHasShadows(PictureView* view)
+{
+    const int kind = ShpPalettePanel::kindOf(view);
+    return kind >= 0 && shp_kind(kind).shadow >= 0;
+}
+
 int ShpUnitPanel::shadowHalfOf(PictureView* view)
 {
-    if (!shadowsOf(view)) {
+    if (!kindHasShadows(view) || !shadowsOf(view)) {
         return 0;
     }
     const int total = shp_info(*view).total;
@@ -329,11 +336,12 @@ void ShpUnitPanel::setView(PictureView* view)
 void ShpUnitPanel::refresh()
 {
     const bool shp = view_ && shp_info(*view_).valid;
+    const bool shadowKind = shp && kindHasShadows(view_);
     {
         const QSignalBlocker block(shadows_);
-        shadows_->setChecked(shp && shadowsOf(view_));
+        shadows_->setChecked(shadowKind && shadowsOf(view_));
     }
-    shadows_->setEnabled(shp);
+    shadows_->setEnabled(shadowKind);
     {
         const QSignalBlocker block(recomputeRadar_);
         recomputeRadar_->setChecked(recomputeRadarOf(view_));
@@ -347,8 +355,14 @@ void ShpUnitPanel::sync()
     const bool shp = view_ && shp_info(*view_).valid;
     const int half = shp ? shadowHalf() : 0;
     const int total = shp ? shp_info(*view_).total : 0;
+    const int kind = shp ? ShpPalettePanel::kindOf(view_) : -1;
+    const ShpKind roles = shp_kind(kind);
+    const bool shadowKind = shp && roles.shadow >= 0;
     if (!shp) {
         readout_->setText(QString());
+    } else if (!shadowKind) {
+        readout_->setText(tr("Shadows: none (a %1 palette has no shadow index)")
+                              .arg(QString(roles.label)));
     } else if (half > 0) {
         readout_->setText(tr("Shadows: frames %1-%2 (art %3-%4)")
                               .arg(half)
@@ -361,9 +375,9 @@ void ShpUnitPanel::sync()
         readout_->setText(tr("Shadows: none. Generate adds a shadow frame for every frame."));
     }
     underlay_->setEnabled(half > 0);
-    house_->setEnabled(shp);
+    house_->setEnabled(shp && roles.remap_first >= 0);
     for (QAction* action : std::as_const(actions_)) {
-        action->setEnabled(shp);
+        action->setEnabled(shadowKind);
     }
     for (const char* name : {"clear", "clearAll"}) {
         actions_.value(QLatin1String(name))->setEnabled(half > 0);
@@ -435,16 +449,18 @@ void ShpUnitPanel::decorate(ImageView::ShpGrid& grid)
     if (grid.shadowUnderlay && shadow >= 0 && !frames_->onSheet(shadow)) {
         grid.activeShadow = offSheetShadow(shadow);
     }
-    if (house_->isChecked()) {
-        constexpr int kFirst = 16;
-        constexpr int kLast = 31;
+    // The remap ramp of the palette's kind (16-31 for a unit palette).
+    const ShpKind roles = shp_kind(ShpPalettePanel::kindOf(view_));
+    if (house_->isChecked() && roles.remap_first >= 0) {
+        const int first = roles.remap_first;
+        const int last = roles.remap_last;
         const ::rust::Vec<uint32_t> unique = shp_palette_unique(*view_);
         const ::rust::Vec<uint32_t> ramp =
-            shp_house_ramp(*view_, houseColor_.rgb() & 0xFFFFFFu, kFirst, kLast);
-        if (unique.size() == 256 && ramp.size() == size_t(kLast - kFirst + 1)) {
-            for (int i = kFirst; i <= kLast; ++i) {
+            shp_house_ramp(*view_, houseColor_.rgb() & 0xFFFFFFu, first, last);
+        if (unique.size() == 256 && ramp.size() == size_t(last - first + 1)) {
+            for (int i = first; i <= last; ++i) {
                 grid.remapFrom.append(unique[size_t(i)] | 0xFF000000u);
-                grid.remapTo.append(ramp[size_t(i - kFirst)]);
+                grid.remapTo.append(ramp[size_t(i - first)]);
             }
         }
     }
