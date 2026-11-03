@@ -251,6 +251,19 @@ pub mod ffi {
         /// "Clip to Tiles"); the pixels changed, or -1.
         fn tmp_clip(view: Pin<&mut PictureView>) -> i32;
 
+        /// Set a tile's height, land and ramp types (0-255) and radar colors
+        /// (`0xRRGGBB`), recorded as "Tile Fields" (nothing is recorded when
+        /// they are unchanged); false with the reason in `shp_last_error`.
+        fn tmp_set_tile_fields(
+            view: Pin<&mut PictureView>,
+            slot: i32,
+            height: i32,
+            land: i32,
+            ramp: i32,
+            radar_low: u32,
+            radar_high: u32,
+        ) -> bool;
+
         /// The `.pal` the next `open_image_start` on this view uses for an
         /// SHP; empty for the built-in grey fallback.
         fn shp_set_open_palette(view: Pin<&mut PictureView>, path: &QString);

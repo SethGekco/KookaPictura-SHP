@@ -148,6 +148,8 @@ private slots:
     void theSaveFiltersOfferTmp();
     void aTemplateDoesNotSaveAsShp();
     void aTheaterSuffixedShpSavesByteIdentical();
+    void tileFieldsAreEditedInThePanelAndUndo();
+    void aBadFieldValueIsRefused();
 
 private:
     pictura::PictureView* open(const QString& path);
@@ -478,6 +480,59 @@ void TmpTest::aTheaterSuffixedShpSavesByteIdentical()
     pictura::ShpSupport::setGateInteractive(0);
     QVERIFY(!window_->saveActiveAs(dir_.filePath(QStringLiteral("tree.tmp"))));
     pictura::forgetFolderPalette(path);
+}
+
+void TmpTest::tileFieldsAreEditedInThePanelAndUndo()
+{
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    QTRY_COMPARE(support_->tiles()->tileCount(), 2);
+    QTableWidget* table = support_->tiles()->table();
+    QVERIFY(table->item(1, 3)->flags() & Qt::ItemIsEditable);
+    QVERIFY(!(table->item(1, 1)->flags() & Qt::ItemIsEditable));
+    const int history = view->history_index();
+    table->item(1, 3)->setText(QStringLiteral("5"));
+    QTRY_COMPARE(pictura::tmp_tiles(*view)[1].height, 5);
+    QCOMPARE(view->history_index(), history + 1);
+    QTRY_COMPARE(table->item(1, 3)->text(), QStringLiteral("5"));
+    table->item(1, 4)->setText(QStringLiteral("13"));
+    QTRY_COMPARE(pictura::tmp_tiles(*view)[1].land, 13);
+    QTRY_VERIFY(table->item(1, 4)->text().startsWith(QStringLiteral("13 ")));
+    table->item(1, 8)->setText(QStringLiteral("#010203 / #fafbfc"));
+    QTRY_COMPARE(pictura::tmp_tiles(*view)[1].radar_high, 0xFAFBFCu);
+    QCOMPARE(pictura::tmp_tiles(*view)[1].radar_low, 0x010203u);
+
+    QVERIFY(window_->saveActive());
+    const QByteArray saved = readFile(tmp_);
+    const int second = 16 + 2 * 4 + 52 + 2 * kDiamond + 2 * 16; // slot 1's record
+    for (int i : differing(saved, terrain())) {
+        QVERIFY2(i >= second + 40 && i < second + 49, qPrintable(QString::number(i)));
+    }
+    QCOMPARE(quint8(saved[second + 40]), quint8(5));
+    QCOMPARE(quint8(saved[second + 41]), quint8(13));
+
+    window_->registry()->dispatch(QStringLiteral("edit.undo"));
+    QTRY_COMPARE(pictura::tmp_tiles(*view)[1].radar_high, 0x405060u);
+    QTRY_COMPARE(table->item(1, 8)->text(), QStringLiteral("#102030 / #405060"));
+    window_->registry()->dispatch(QStringLiteral("edit.undo"));
+    window_->registry()->dispatch(QStringLiteral("edit.undo"));
+    QTRY_COMPARE(pictura::tmp_tiles(*view)[1].height, 2);
+    QTRY_COMPARE(table->item(1, 3)->text(), QStringLiteral("2"));
+}
+
+void TmpTest::aBadFieldValueIsRefused()
+{
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    QTRY_COMPARE(support_->tiles()->tileCount(), 2);
+    QTableWidget* table = support_->tiles()->table();
+    const int history = view->history_index();
+    table->item(1, 3)->setText(QStringLiteral("300"));
+    QTRY_COMPARE(table->item(1, 3)->text(), QStringLiteral("2"));
+    table->item(1, 8)->setText(QStringLiteral("red"));
+    QTRY_COMPARE(table->item(1, 8)->text(), QStringLiteral("#102030 / #405060"));
+    QCOMPARE(view->history_index(), history);
+    QCOMPARE(pictura::tmp_tiles(*view)[1].height, 2);
 }
 
 QTEST_MAIN(TmpTest)

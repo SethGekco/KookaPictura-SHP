@@ -18,3 +18,9 @@
 - [x] 3.2 Route the theater suffixes and `.tmp` to `shp::save_westwood`; read the layers back and write in place.
 - [x] 3.3 Add the TMP save gate (`shp_support_tmp.cpp`), the Save As filter and the path helpers.
 - [x] 3.4 Run the app over a 301-file TMP sample, 50 theater SHPs and the SHP regression sample; verify a one-pixel edit with Ochre's reader.
+
+## 4. Fields
+
+- [x] 4.1 Write the field tests (`shp/tmp_tests.rs`, `tst_tmp`).
+- [x] 4.2 Add `tmp_set_tile_fields` (a recorded metadata edit of the resource's field table).
+- [x] 4.3 Make the Tiles panel's Height, Land, Ramp and Radar cells editable.

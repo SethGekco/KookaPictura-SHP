@@ -13,7 +13,7 @@ use pictura_shp::terrain::{
     clip_outside, fields_of, read_back, render, snap, tile_at, LayerSpec, Placement, Scan,
     TmpResource,
 };
-use pictura_shp::tmp::{self, land_label, ramp_label, Template};
+use pictura_shp::tmp::{self, land_label, ramp_label, Template, TileFields};
 
 use crate::cxxqt_object::shp::ffi::{TmpCheck, TmpInfo, TmpTile};
 
@@ -569,4 +569,80 @@ pub(in crate::cxxqt_object) fn tmp_snap(view: Pin<&mut PictureView>) -> i32 {
 
 pub(in crate::cxxqt_object) fn tmp_clip(view: Pin<&mut PictureView>) -> i32 {
     commit(view, "Clip to Tiles", clip_template_rust)
+}
+
+/// The mutation half of "Tile Fields": set slot `slot`'s height, land and
+/// ramp types and radar colors in the resource (what Save writes into its
+/// header). `Ok(false)` when nothing changed.
+pub(in crate::cxxqt_object) fn set_tile_fields_rust(
+    rust: &mut PictureViewRust,
+    slot: usize,
+    fields: TileFields,
+) -> Result<bool, String> {
+    let doc = rust.session.doc.as_mut().ok_or("no document")?;
+    let mut resource = tmp_resource(doc).ok_or("This document is not a TMP template.")?;
+    let entry = resource
+        .fields
+        .iter_mut()
+        .find(|(s, _)| *s == slot)
+        .ok_or_else(|| format!("The template has no tile in slot {slot}."))?;
+    if entry.1 == fields {
+        return Ok(false);
+    }
+    entry.1 = fields;
+    doc.image_resources = resource.store(&doc.image_resources).into();
+    Ok(true)
+}
+
+pub(in crate::cxxqt_object) fn tmp_set_tile_fields(
+    view: Pin<&mut PictureView>,
+    slot: i32,
+    height: i32,
+    land: i32,
+    ramp: i32,
+    radar_low: u32,
+    radar_high: u32,
+) -> bool {
+    let byte = |v: i32, what: &str| {
+        u8::try_from(v).map_err(|_| format!("The {what} must be 0 to 255 (got {v})."))
+    };
+    let colour = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8];
+    let fields = (|| {
+        Ok::<_, String>(TileFields {
+            height: byte(height, "height")?,
+            land: byte(land, "land type")?,
+            ramp: byte(ramp, "ramp type")?,
+            radar_low: colour(radar_low),
+            radar_high: colour(radar_high),
+        })
+    })();
+    let (fields, slot) = match (fields, usize::try_from(slot)) {
+        (Ok(f), Ok(s)) => (f, s),
+        (Err(e), _) => {
+            set_error(&e);
+            return false;
+        }
+        (_, Err(_)) => {
+            set_error("no such tile");
+            return false;
+        }
+    };
+    let mut outcome: Result<bool, String> = fail("no document");
+    view.edit("Tile Fields", |rust| {
+        outcome = set_tile_fields_rust(rust, slot, fields);
+        match outcome {
+            Ok(true) => Edit::Meta,
+            _ => Edit::None,
+        }
+    });
+    match outcome {
+        Ok(_) => {
+            set_error("");
+            true
+        }
+        Err(e) => {
+            set_error(&e);
+            false
+        }
+    }
 }

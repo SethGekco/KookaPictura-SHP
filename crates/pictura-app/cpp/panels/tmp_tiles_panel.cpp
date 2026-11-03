@@ -5,6 +5,7 @@
 
 #include "image_view.h"
 
+#include <QtCore/QRegularExpression>
 #include <QtCore/QSignalBlocker>
 #include <QtGui/QColor>
 #include <QtWidgets/QCheckBox>
@@ -59,12 +60,15 @@ TmpTilesPanel::TmpTilesPanel(QWidget* parent)
                                        tr("Radar")});
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
     table_->verticalHeader()->setVisible(false);
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setToolTip(tr("Land and ramp show the number the file holds and the game's name for "
                           "it; several numbers share a name, and the number is what is saved. "
-                          "Z: whether the tile has z-data (painted on the hidden Z layers)."));
+                          "Z: whether the tile has z-data (painted on the hidden Z layers). "
+                          "Double-click (or F2) Height, Land, Ramp or Radar to change it: a "
+                          "number 0-255, and two colors #rrggbb for the radar; each change "
+                          "is one undoable step that Save writes into the tile header."));
     layout->addWidget(table_, 1);
 
     connect(table_, &QTableWidget::currentCellChanged, this,
@@ -74,6 +78,14 @@ TmpTilesPanel::TmpTilesPanel(QWidget* parent)
                 }
             });
     connect(outlines_, &QCheckBox::toggled, this, [this] { syncGrid(); });
+    // Queued: applying rebuilds the rows, which must not happen while the
+    // table is still inside the edit that changed the item.
+    connect(
+        table_, &QTableWidget::itemChanged, this,
+        [this](QTableWidgetItem* item) {
+            const int row = item->row();
+            QMetaObject::invokeMethod(this, [this, row] { applyRow(row); }, Qt::QueuedConnection);
+        });
 }
 
 void TmpTilesPanel::setView(PictureView* view, ImageView* canvas)
@@ -97,10 +109,14 @@ void TmpTilesPanel::refresh()
     }
     const quint64 revision = view_->canvas_revision();
     const quint64 generation = view_->document_generation();
-    if (!built_ || revision != builtRevision_ || generation != builtGeneration_) {
+    // A field edit, its undo and redo move the history without a repaint.
+    const int history = view_->history_index();
+    if (!built_ || revision != builtRevision_ || generation != builtGeneration_
+        || history != builtHistory_) {
         rebuild();
         builtRevision_ = revision;
         builtGeneration_ = generation;
+        builtHistory_ = history;
         built_ = true;
     }
     syncGrid();
@@ -124,6 +140,10 @@ void TmpTilesPanel::rebuild()
         const auto set = [&](int column, const QString& text) {
             auto* item = new QTableWidgetItem(text);
             item->setData(Qt::UserRole, t.slot);
+            const bool editable =
+                column == Height || column == Land || column == Ramp || column == Radar;
+            item->setFlags(editable ? item->flags() | Qt::ItemIsEditable
+                                    : item->flags() & ~Qt::ItemIsEditable);
             table_->setItem(row, column, item);
         };
         set(Slot, QString::number(t.slot));
@@ -149,6 +169,46 @@ void TmpTilesPanel::rebuild()
     if (row >= 0) {
         table_->setCurrentCell(row, Slot);
     }
+}
+
+bool TmpTilesPanel::applyRow(int row)
+{
+    if (!view_ || row < 0 || row >= table_->rowCount()) {
+        return false;
+    }
+    const int slot = table_->item(row, Slot)->data(Qt::UserRole).toInt();
+    // The leading number of "15 Cliff", or -1.
+    const auto number = [this, row](int column) {
+        static const QRegularExpression lead(QStringLiteral("^\\s*(\\d+)"));
+        const QRegularExpressionMatch m = lead.match(table_->item(row, column)->text());
+        bool ok = false;
+        const int v = m.hasMatch() ? m.captured(1).toInt(&ok) : -1;
+        return ok && v <= 255 ? v : -1;
+    };
+    const int height = number(Height);
+    const int land = number(Land);
+    const int ramp = number(Ramp);
+    static const QRegularExpression hexes(QStringLiteral("#?([0-9A-Fa-f]{6})\\b"));
+    QList<quint32> radar;
+    for (auto it = hexes.globalMatch(table_->item(row, Radar)->text()); it.hasNext();) {
+        radar << it.next().captured(1).toUInt(nullptr, 16);
+    }
+    QString problem;
+    if (height < 0 || land < 0 || ramp < 0) {
+        problem = tr("Tile %1: height, land and ramp are numbers 0 to 255.").arg(slot);
+    } else if (radar.size() != 2) {
+        problem = tr("Tile %1: the radar colors are two colors, #rrggbb / #rrggbb.").arg(slot);
+    } else if (!tmp_set_tile_fields(*view_, slot, height, land, ramp, radar[0], radar[1])) {
+        problem = tr("Tile %1: %2").arg(slot).arg(QString(shp_last_error()));
+    }
+    built_ = false;
+    refresh();
+    if (!problem.isEmpty()) {
+        emit message(problem);
+        return false;
+    }
+    emit message(tr("Tile %1 fields changed (Save writes them into its header).").arg(slot));
+    return true;
 }
 
 int TmpTilesPanel::tileCount() const

@@ -106,3 +106,20 @@ when no dialog can be shown.
 
 - **WHEN** a layer is renamed, a template is saved as `.shp`, or an SHP sheet as `.tmp`
 - **THEN** the save is refused with the reason, and an SHP sheet still saves under its theater suffix byte-identical
+
+### Requirement: Editing TMP tile fields
+
+The system SHALL let the user change a tile's height, land type, ramp type
+and radar colors in the Tiles panel, each change one undoable History step
+that Save writes into that tile's header and nowhere else, and SHALL refuse
+a value that is not 0-255 or not two colors.
+
+#### Scenario: A field edit is saved and undone [tmp_fields_edit]
+
+- **WHEN** a tile's height, land type and radar colors are changed in the panel, the template is saved, and the changes are undone
+- **THEN** the saved file differs only in that tile's header field bytes, and undo restores the fields and the panel
+
+#### Scenario: A bad field value is refused [tmp_fields_refused]
+
+- **WHEN** a height of 300 or a radar color "red" is typed
+- **THEN** nothing is recorded and the row shows the old value

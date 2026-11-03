@@ -22,7 +22,8 @@ class PictureView;
 // whether it has an extra block (and on which Extras layer) and z-data, and
 // its radar colors. Clicking a row brings the tile into view and highlights
 // its outline; the canvas outlines every diamond, and every extra block
-// dashed, like the SHP frame grid.
+// dashed, like the SHP frame grid. Height, land, ramp and radar colors are
+// edited in place (double-click or F2), each change one undoable step.
 class TmpTilesPanel : public QWidget {
     Q_OBJECT
 
@@ -45,6 +46,11 @@ public:
     QCheckBox* outlines() const { return outlines_; }
     QString summaryForTest() const;
 
+    // Apply the fields typed into `row` (height, land, ramp, radar) to its
+    // tile as one undoable "Tile Fields" step; false (and a message) when
+    // a value does not parse or is out of range.
+    bool applyRow(int row);
+
 signals:
     void message(const QString& text);
 
@@ -60,6 +66,7 @@ private:
     QCheckBox* outlines_ = nullptr;
     quint64 builtRevision_ = 0;
     quint64 builtGeneration_ = 0;
+    int builtHistory_ = -1;
     bool built_ = false;
 };
 

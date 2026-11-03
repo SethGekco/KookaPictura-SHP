@@ -61,8 +61,9 @@ effect art directly.
   their tiles in place on a Tiles layer, extra blocks on Extras layers and
   z-data on hidden Z layers as greys, in their `iso<theater>.pal` palette. A
   Tiles panel lists every tile (cell, height, land and ramp type, extra
-  block, z-data, radar colors) and the canvas outlines each diamond.
-  Ctrl+S saves the template: untouched tiles byte for byte, edited ones
+  block, z-data, radar colors) and the canvas outlines each diamond;
+  height, land and ramp type and the radar colors are edited right in
+  the list, each change undoable. Ctrl+S saves the template: untouched tiles byte for byte, edited ones
   re-encoded; off-palette colors, Z greys that are not depths and pixels
   outside the tiles are caught first (Snap, Clip or Show Me). Checked
   against 2,745 real templates: every one saves back byte-identical (see

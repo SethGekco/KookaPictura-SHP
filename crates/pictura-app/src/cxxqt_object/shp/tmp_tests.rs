@@ -6,6 +6,7 @@ use super::tests::{choice, doc};
 use super::tmp::*;
 use super::*;
 use crate::cxxqt_object::open_jobs::apply_opened;
+use crate::history::History;
 use pictura_shp::tmp::{build, diamond_rows, Template, Tile, TileFields, Z_NONE};
 
 pub(super) const CX: usize = 60;
@@ -263,4 +264,55 @@ fn tmp_suffixes_are_the_theater_ones_and_tmp() {
         assert!(tmp_suffix(s));
     }
     assert!(!tmp_suffix("shp") && !tmp_suffix("png"));
+}
+
+#[test]
+fn tile_fields_save_into_the_header_and_undo() {
+    let mut rust = opened_tmp(bytes());
+    let before = doc(&rust).clone();
+    let fields = TileFields {
+        height: 4,
+        land: 13,
+        ramp: 7,
+        radar_low: [1, 2, 3],
+        radar_high: [250, 251, 252],
+    };
+    assert_eq!(set_tile_fields_rust(&mut rust, 3, fields), Ok(true));
+    rust.apply_edit("Tile Fields", Edit::Meta);
+    assert_eq!(set_tile_fields_rust(&mut rust, 3, fields), Ok(false));
+    assert!(
+        set_tile_fields_rust(&mut rust, 1, fields).is_err(),
+        "slot 1 is empty"
+    );
+    let tiles = tiles_of(doc(&rust));
+    assert_eq!((tiles[1].height, tiles[1].land, tiles[1].ramp), (4, 13, 7));
+    assert_eq!(tiles[1].radar_high, 0xFAFBFC);
+
+    let saved = encode_template(doc(&rust)).expect("saves");
+    let original = bytes();
+    let t = pictura_shp::tmp::parse(&saved).unwrap();
+    assert_eq!(t.tiles[3].as_ref().unwrap().fields, fields);
+    assert_eq!(
+        t.tiles[0],
+        pictura_shp::tmp::parse(&original).unwrap().tiles[0]
+    );
+    // Only bytes 40-48 of slot 3's header can differ.
+    let start = t.tiles[3].as_ref().unwrap().offset;
+    let differ: Vec<usize> = (0..saved.len())
+        .filter(|&i| saved[i] != original[i])
+        .collect();
+    assert!(!differ.is_empty());
+    assert!(
+        differ
+            .iter()
+            .all(|&i| (start + 40..start + 49).contains(&i)),
+        "{differ:?}"
+    );
+
+    assert!(rust
+        .session
+        .restore(&mut rust.layer_target, History::undo_live, History::undo)
+        .is_some());
+    assert_eq!(doc(&rust).image_resources, before.image_resources);
+    assert_eq!(encode_template(doc(&rust)).expect("saves"), bytes());
 }

@@ -964,3 +964,16 @@ Phase 4, TMP terrain (recorded as each piece landed; the OpenSpec change is
   outside the tiles are refused headless with "Snap them" / "Clip them".
   The SHP regression sample (321 files, `phase2-e2e.py`) is still 321 of
   321 byte-identical.
+- **Tile fields are edited in the Tiles panel**: double-click (or F2)
+  Height, Land, Ramp or Radar and type a number 0-255 (land and ramp keep
+  showing the game's name beside it) or two `#rrggbb` colors. Each change
+  is one "Tile Fields" step in History (a metadata edit of the `KookaTMP`
+  resource's field table, so undo and redo carry it and the pixels are
+  untouched), and Save writes it into that tile's header bytes 40-48 only.
+  A value that does not parse or is out of range is refused and the row
+  reverts. Z-data and extra blocks are edited as pixels on their layers
+  (show a Z layer to paint depths); what the layout cannot express is not
+  offered: a new extra block (its size and position live in the header),
+  moving a tile, or the template's grid and tile size. Land and ramp are
+  stored as numbers; the panel's names are a reading aid (several land
+  numbers share one name).
