@@ -62,7 +62,11 @@ effect art directly.
   z-data on hidden Z layers as greys, in their `iso<theater>.pal` palette. A
   Tiles panel lists every tile (cell, height, land and ramp type, extra
   block, z-data, radar colors) and the canvas outlines each diamond.
-  Saving templates is next (see [`SHP-PLAN.md`](SHP-PLAN.md)).
+  Ctrl+S saves the template: untouched tiles byte for byte, edited ones
+  re-encoded; off-palette colors, Z greys that are not depths and pixels
+  outside the tiles are caught first (Snap, Clip or Show Me). Checked
+  against 2,745 real templates: every one saves back byte-identical (see
+  [`SHP-PLAN.md`](SHP-PLAN.md)).
 - For the unmodified Kooka Pictura there is also a drop-in Qt plugin,
   [`qshp`](https://github.com/SethGekco/Ochre/tree/master/extras/qshp), that
   opens SHPs as sprite sheets (a small converter saves them back). Do not

@@ -534,6 +534,7 @@ set(PICTURA_SHELL_SOURCES
     crates/pictura-app/cpp/shp_palettes.cpp
     crates/pictura-app/cpp/shp_support.cpp
     crates/pictura-app/cpp/shp_support_unit.cpp
+    crates/pictura-app/cpp/shp_support_tmp.cpp
     crates/pictura-app/cpp/image_view_smart_guides.cpp
     crates/pictura-app/cpp/smart_guides.cpp
     crates/pictura-app/cpp/image_view_channels.cpp

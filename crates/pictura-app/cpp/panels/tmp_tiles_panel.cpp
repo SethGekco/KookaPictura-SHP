@@ -205,6 +205,18 @@ void TmpTilesPanel::focusSlot(int slot)
     syncGrid();
 }
 
+void TmpTilesPanel::focusPoint(const QPoint& point)
+{
+    if (!canvas_) {
+        return;
+    }
+    const QRectF area(point.x() - 8, point.y() - 8, 17, 17);
+    if (canvas_->zoom() < 4.0) {
+        canvas_->setZoom(4.0, QPointF(canvas_->width() / 2.0, canvas_->height() / 2.0));
+    }
+    canvas_->centerOnImageRect(area);
+}
+
 void TmpTilesPanel::syncGrid()
 {
     if (!canvas_ || !view_ || !tmp_info(*view_).valid) {

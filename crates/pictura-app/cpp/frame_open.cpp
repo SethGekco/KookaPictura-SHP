@@ -604,7 +604,7 @@ bool PicturaMainWindow::saveRunsOnWorker(const QString& path)
         QStringLiteral("webp"), QStringLiteral("bmp"),
     };
     return suffix != QStringLiteral("pdf") && suffix != QStringLiteral("pdp")
-        && suffix != QStringLiteral("shp") // KookaPictura-SHP fork: written in place
+        && !isShpPath(path) // KookaPictura-SHP fork: SHP and TMP are written in place
         && !raster.contains(suffix);
 }
 

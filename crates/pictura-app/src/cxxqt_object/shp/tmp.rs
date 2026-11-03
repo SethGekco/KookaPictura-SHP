@@ -9,10 +9,13 @@ use super::*;
 
 use crate::history::History;
 use pictura_core::LayerStack;
-use pictura_shp::terrain::{fields_of, render, tile_at, LayerSpec, Placement, TmpResource};
+use pictura_shp::terrain::{
+    clip_outside, fields_of, read_back, render, snap, tile_at, LayerSpec, Placement, Scan,
+    TmpResource,
+};
 use pictura_shp::tmp::{self, land_label, ramp_label, Template};
 
-use crate::cxxqt_object::shp::ffi::{TmpInfo, TmpTile};
+use crate::cxxqt_object::shp::ffi::{TmpCheck, TmpInfo, TmpTile};
 
 /// The largest TMP file read: real templates are under 100 KB.
 const MAX_FILE: u64 = 64 << 20;
@@ -249,7 +252,7 @@ pub(in crate::cxxqt_object) fn tiles_of(doc: &Document) -> Vec<TmpTile> {
     let scan = read_layers(doc, &p).ok().map(|layers| {
         let refs: Vec<&[u8]> = layers.iter().map(Vec::as_slice).collect();
         let unique = unique_colours(&resource.palette);
-        pictura_shp::terrain::read_back(&t, &p, &refs, &sheet::inverse(&unique))
+        read_back(&t, &p, &refs, &sheet::inverse(&unique))
     });
     let now = scan
         .as_ref()
@@ -383,4 +386,187 @@ fn canvas_rgba(layer: &Layer, width: usize, height: usize) -> Vec<u8> {
         }
     }
     out
+}
+
+/// Read a TMP document's layers back the way Save does.
+pub(in crate::cxxqt_object) fn scan_document(
+    doc: &Document,
+) -> Result<(TmpResource, Placement, Scan), String> {
+    let (resource, t, p) = template_of(doc)
+        .ok_or("This document is not a TMP template, or its TMP data is damaged.")?;
+    let layers = read_layers(doc, &p)?;
+    let refs: Vec<&[u8]> = layers.iter().map(Vec::as_slice).collect();
+    let unique = unique_colours(&resource.palette);
+    let scan = read_back(&t, &p, &refs, &sheet::inverse(&unique));
+    Ok((resource, p, scan))
+}
+
+/// Why `scan` cannot be saved as it is, if it cannot.
+fn refusal(scan: &Scan) -> Option<String> {
+    let at = |p: Option<(usize, usize)>| {
+        p.map_or_else(String::new, |(x, y)| format!(" (first at {x}, {y})"))
+    };
+    if scan.off_palette > 0 || scan.off_scale > 0 {
+        return Some(format!(
+            "{} pixel(s) are not palette colours and {} z pixel(s) are not depths 0-31{}. Snap \
+             them before saving.",
+            scan.off_palette,
+            scan.off_scale,
+            at(scan.first_off)
+        ));
+    }
+    if scan.outside > 0 {
+        return Some(format!(
+            "{} pixel(s) lie outside every tile's diamond and extra block{} and would be lost. \
+             Clip them before saving.",
+            scan.outside,
+            at(scan.first_outside)
+        ));
+    }
+    None
+}
+
+/// The bytes Save writes for a TMP document: every block over the original
+/// file where the layout allows, so untouched tiles keep every byte.
+pub(in crate::cxxqt_object) fn encode_template(doc: &Document) -> Result<Vec<u8>, String> {
+    let (resource, _, scan) = scan_document(doc)?;
+    if let Some(reason) = refusal(&scan) {
+        return fail(reason);
+    }
+    let template = scan.template.ok_or("damaged TMP data")?;
+    tmp::build(&template, Some(&resource.original))
+        .map_err(|e| format!("Cannot write the template: {e}"))
+}
+
+/// Save a TMP document to `path`.
+pub(in crate::cxxqt_object) fn save_tmp(mut view: Pin<&mut PictureView>, path: &str) -> bool {
+    let encoded = match view.rust().session.doc.as_ref() {
+        Some(doc) => encode_template(doc),
+        None => fail("no document"),
+    };
+    let bytes = match encoded {
+        Ok(bytes) => bytes,
+        Err(message) => {
+            set_error(&message);
+            return false;
+        }
+    };
+    if let Err(e) = write_atomically(path, &bytes, true) {
+        set_error(&format!("cannot write {path}: {e}"));
+        return false;
+    }
+    set_error("");
+    let mut rust = view.as_mut().rust_mut();
+    rust.path = Some(path.to_string());
+    rust.session.mark_saved();
+    true
+}
+
+/// Is `suffix` (lower case) one a TMP template is saved under?
+pub(in crate::cxxqt_object) fn tmp_suffix(suffix: &str) -> bool {
+    matches!(
+        suffix,
+        "tem" | "sno" | "urb" | "ubn" | "des" | "lun" | "tmp"
+    )
+}
+
+pub(in crate::cxxqt_object) fn tmp_check(view: &PictureView) -> TmpCheck {
+    let pair =
+        |p: Option<(usize, usize)>| p.map_or_else(Vec::new, |(x, y)| vec![x as i32, y as i32]);
+    let clamp = |n: usize| n.min(i32::MAX as usize) as i32;
+    match view.rust().session.doc.as_ref().map(scan_document) {
+        Some(Ok((_, _, scan))) => TmpCheck {
+            error: QString::default(),
+            off_palette: clamp(scan.off_palette),
+            off_scale: clamp(scan.off_scale),
+            off_slots: scan.off_slots.iter().map(|&s| s as i32).collect(),
+            first_off: pair(scan.first_off),
+            outside: clamp(scan.outside),
+            first_outside: pair(scan.first_outside),
+        },
+        other => TmpCheck {
+            error: QString::from(match other {
+                Some(Err(e)) => e,
+                _ => "no document".to_string(),
+            }),
+            off_palette: 0,
+            off_scale: 0,
+            off_slots: Vec::new(),
+            first_off: Vec::new(),
+            outside: 0,
+            first_outside: Vec::new(),
+        },
+    }
+}
+
+/// Apply `f` to the document's layers (canvas RGBA, `Placement::layers`
+/// order) and store the ones it changed; the pixels changed.
+fn with_layers<F>(rust: &mut PictureViewRust, f: F) -> Result<usize, String>
+where
+    F: FnOnce(&TmpResource, &Template, &Placement, &mut [Vec<u8>]) -> usize,
+{
+    let doc = rust.session.doc.as_mut().ok_or("no document")?;
+    let (resource, t, p) = template_of(doc)
+        .ok_or("This document is not a TMP template, or its TMP data is damaged.")?;
+    let before = read_layers(doc, &p)?;
+    let mut layers = before.clone();
+    let changed = f(&resource, &t, &p, &mut layers);
+    if changed > 0 {
+        let (w, h) = (doc.width, doc.height);
+        for ((spec, old), new) in p.layers().iter().zip(&before).zip(&layers) {
+            if old == new {
+                continue;
+            }
+            if let Some(layer) = doc.layers.iter_mut().find(|l| l.name == spec.name) {
+                store_canvas_rgba(layer, w, h, new);
+            }
+        }
+    }
+    Ok(changed)
+}
+
+/// Replace a pixel layer's pixels with canvas RGBA (its rect becomes the
+/// canvas; every other property is kept).
+fn store_canvas_rgba(layer: &mut Layer, width: u32, height: u32, rgba: &[u8]) {
+    let plane = width as usize * height as usize;
+    let whole = full_canvas(layer, width, height)
+        && [0i16, 1, 2, -1].iter().all(|id| {
+            layer
+                .channels
+                .iter()
+                .any(|c| c.id == *id && c.data.len() == plane)
+        });
+    if whole {
+        store_layer_rgba(layer, rgba);
+        return;
+    }
+    let fresh = Document::from_rgba(&layer.name, width, height, rgba);
+    let fresh = &fresh.layers[0];
+    layer.rect = fresh.rect;
+    layer.channels = fresh.channels.clone();
+}
+
+/// The mutation half of TMP "Snap to Palette".
+pub(in crate::cxxqt_object) fn snap_template_rust(
+    rust: &mut PictureViewRust,
+) -> Result<usize, String> {
+    with_layers(rust, |resource, t, p, layers| {
+        let unique = unique_colours(&resource.palette);
+        snap(t, p, layers, &resource.palette, &unique)
+    })
+}
+
+/// The mutation half of "Clip to Tiles".
+pub(in crate::cxxqt_object) fn clip_template_rust(
+    rust: &mut PictureViewRust,
+) -> Result<usize, String> {
+    with_layers(rust, |_, t, p, layers| clip_outside(t, p, layers))
+}
+
+pub(in crate::cxxqt_object) fn tmp_snap(view: Pin<&mut PictureView>) -> i32 {
+    commit(view, "Snap to Palette", snap_template_rust)
+}
+
+pub(in crate::cxxqt_object) fn tmp_clip(view: Pin<&mut PictureView>) -> i32 {
+    commit(view, "Clip to Tiles", clip_template_rust)
 }

@@ -7,6 +7,7 @@
 #include "pictura_app/src/cxxqt_object.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/export.cxxqt.h"
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
+#include "shp_palettes.h"
 #include "shp_support.h"
 
 #include <QtCore/QDir>
@@ -110,8 +111,12 @@ bool isKnownImageSuffix(const QString& suffix)
                                       QStringLiteral("tif"), QStringLiteral("tiff"),
                                       QStringLiteral("webp"), QStringLiteral("bmp"),
                                       QStringLiteral("pdf"), QStringLiteral("pdp"),
-                                      // KookaPictura-SHP fork: written by shp::save_shp.
-                                      QStringLiteral("shp")};
+                                      // KookaPictura-SHP fork: written by shp::save_westwood
+                                      // (SHP sheets and TMP terrain templates).
+                                      QStringLiteral("shp"), QStringLiteral("tem"),
+                                      QStringLiteral("sno"), QStringLiteral("urb"),
+                                      QStringLiteral("ubn"), QStringLiteral("des"),
+                                      QStringLiteral("lun"), QStringLiteral("tmp")};
     return known.contains(suffix);
 }
 
@@ -259,8 +264,11 @@ const QStringList& saveFileFilters()
         QStringLiteral("BMP (*.BMP)"),
         QStringLiteral("Photoshop PDF (*.PDF *.PDP)"),
         QStringLiteral("Westwood SHP (TS/RA2) (*.SHP)"), // KookaPictura-SHP fork
+        // KookaPictura-SHP fork
+        QStringLiteral("Westwood TMP terrain (*.TEM *.SNO *.URB *.UBN *.DES *.LUN *.TMP)"),
         QStringLiteral("All Formats (*.PSD *.PSB *.PNG *.JPG *.JPEG *.JPE *.TIF *.TIFF "
-                       "*.WEBP *.BMP *.PDF *.PDP *.SHP)"),
+                       "*.WEBP *.BMP *.PDF *.PDP *.SHP *.TEM *.SNO *.URB *.UBN *.DES *.LUN "
+                       "*.TMP)"),
     };
     return filters;
 }
@@ -308,8 +316,15 @@ bool savePathNeedsFormatDialog(const QString& path, PictureView* view, bool path
     if (path.isEmpty() || !isWritableSavePath(path)) {
         return true;
     }
-    if (isShpPath(path)) { // KookaPictura-SHP fork: only an SHP sheet saves as one
-        return !view || !shp_info(*view).valid;
+    if (isShpPath(path)) { // KookaPictura-SHP fork: only an SHP sheet or a TMP saves as one
+        if (!view) {
+            return true;
+        }
+        if (tmp_info(*view).valid) {
+            return !isTmpPath(path);
+        }
+        return !shp_info(*view).valid
+            || QFileInfo(path).suffix().compare(QStringLiteral("tmp"), Qt::CaseInsensitive) == 0;
     }
     return view && !pathIsNative && documentRequiresLayers(view);
 }
@@ -318,6 +333,9 @@ int defaultSaveFilterIndex(PictureView* view)
 {
     if (view && shp_info(*view).valid) { // KookaPictura-SHP fork
         return 8;
+    }
+    if (view && tmp_info(*view).valid) { // KookaPictura-SHP fork
+        return 9;
     }
     if (!view || documentRequiresLayers(view)) {
         return 0; // Photoshop (*.PSD)
@@ -381,6 +399,8 @@ QString defaultSuffixForFilter(int filterIndex)
         return QStringLiteral(".pdf");
     case 8:
         return QStringLiteral(".shp"); // KookaPictura-SHP fork
+    case 9:
+        return QStringLiteral(".tem"); // KookaPictura-SHP fork
     default:
         return QStringLiteral(".psd");
     }
@@ -402,6 +422,12 @@ QString pathForSaveFilter(const QString& path, int chosenFilter, int fallbackFil
     const QStringList& filters = saveFileFilters();
     const int allFormats = filters.size() - 1;
     if (chosenFilter == allFormats && !QFileInfo(path).suffix().isEmpty()) {
+        return lowercasedImageSuffix(path);
+    }
+    // KookaPictura-SHP fork: the Westwood filters keep a typed theater
+    // suffix (and the TMP filter .tmp), which say what the file is for.
+    if ((chosenFilter == 8 && theaterSuffixes().contains(QFileInfo(path).suffix().toLower()))
+        || (chosenFilter == 9 && isTmpPath(path))) {
         return lowercasedImageSuffix(path);
     }
     const int effective =

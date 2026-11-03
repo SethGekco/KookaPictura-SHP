@@ -30,8 +30,11 @@ class TmpTilesPanel;
 enum class ToolId;
 struct ShpPlan;
 
-// True for a path with the .shp suffix (any case).
+// True for a path the fork's writers save (any case): .shp, the theater
+// suffixes (an SHP sheet or a TMP template) and .tmp (a TMP template).
 bool isShpPath(const QString& path);
+// True for a path a TMP template saves under: the theater suffixes and .tmp.
+bool isTmpPath(const QString& path);
 
 class ShpSupport : public QObject {
     Q_OBJECT
@@ -191,6 +194,11 @@ private:
     void message(const QString& text);
     bool interactive() const;
     void showOffPalette(PictureView* view);
+    // The save gate of a TMP template (shp_support_tmp.cpp): off-palette
+    // and off-scale pixels ([Snap and Save] / [Show Me] / [Cancel]), then
+    // pixels outside the tiles ([Clip and Save] / [Show Me] / [Cancel]);
+    // without dialogs it refuses with the reason.
+    bool tmpGate(PictureView* view, bool dialogs, const QString& path);
     // The checks before the window's pixels become indices (a save, or a
     // page change when `paging`): off-palette pixels (unless not `palette`)
     // and gutter bleed, with the recorded fixes offered when `dialogs` and

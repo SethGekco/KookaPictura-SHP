@@ -4,6 +4,7 @@
 
 #include <QtTest/QtTest>
 
+#include "api/document_api.h"
 #include "dialogs.h"
 #include "commands.h"
 #include "frame.h"
@@ -18,8 +19,12 @@
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
 
 #include <QtCore/QTemporaryDir>
+#include <QtCore/QTimer>
+#include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QDockWidget>
+#include <QtWidgets/QMessageBox>
+#include <QtWidgets/QPushButton>
 #include <QtWidgets/QTableWidget>
 
 #include "qt_test_support.h"
@@ -76,6 +81,48 @@ QByteArray terrain()
     return out;
 }
 
+// Click the button named `button` in the gate when it appears.
+class GateClicker {
+public:
+    explicit GateClicker(const QString& button)
+    {
+        QObject::connect(&poll_, &QTimer::timeout, [this, button] {
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                auto* box = qobject_cast<QMessageBox*>(widget);
+                if (!box || !box->isVisible()
+                    || box->objectName() != QLatin1String("shpGate")) {
+                    continue;
+                }
+                seen_ = true;
+                if (auto* target = box->findChild<QPushButton*>(button)) {
+                    target->click();
+                }
+            }
+        });
+        poll_.start(20);
+    }
+    bool seen() const { return seen_; }
+
+private:
+    QTimer poll_;
+    bool seen_ = false;
+};
+
+// The offsets of the bytes where `a` and `b` differ (same size).
+QList<int> differing(const QByteArray& a, const QByteArray& b)
+{
+    QList<int> out;
+    for (int i = 0; i < std::min(a.size(), b.size()); ++i) {
+        if (a[i] != b[i]) {
+            out << i;
+        }
+    }
+    return out;
+}
+
+// Slot 0's diamond bytes in terrain().
+constexpr int kTile0Pixels = 16 + 2 * 4 + 52;
+
 } // namespace
 
 class TmpTest : public QObject {
@@ -92,6 +139,15 @@ private slots:
     void reshapingCommandsAreBlocked();
     void aTheaterSuffixedShpOpensAsASprite();
     void theOpenFiltersListTheTheaterSuffixes();
+    void unchangedSaveIsByteIdentical();
+    void ctrlSWritesOneByteOfTheEditedTile();
+    void offPaletteSaveAsksFirst();
+    void offPaletteSaveIsRefusedWithoutDialogs();
+    void showMeSelectsTheFirstOffPixel();
+    void aPixelOutsideTheTilesIsClipped();
+    void theSaveFiltersOfferTmp();
+    void aTemplateDoesNotSaveAsShp();
+    void aTheaterSuffixedShpSavesByteIdentical();
 
 private:
     pictura::PictureView* open(const QString& path);
@@ -118,6 +174,7 @@ void TmpTest::init()
 
 void TmpTest::cleanup()
 {
+    pictura::ShpSupport::setGateInteractive(-1);
     window_.reset();
     pictura::forgetFolderPalette(tmp_, true);
 }
@@ -263,6 +320,164 @@ void TmpTest::theOpenFiltersListTheTheaterSuffixes()
     }));
     QVERIFY(pictura::isTheaterPath(QStringLiteral("/x/CLEAR01.SNO")));
     QVERIFY(!pictura::isTheaterPath(QStringLiteral("/x/clear01.shp")));
+}
+
+void TmpTest::unchangedSaveIsByteIdentical()
+{
+    QVERIFY(open(tmp_));
+    const QString out = dir_.filePath(QStringLiteral("copy.sno"));
+    QVERIFY(window_->saveActiveAs(out));
+    QCOMPARE(readFile(out), terrain());
+    QCOMPARE(window_->documentPath(0), out);
+}
+
+void TmpTest::ctrlSWritesOneByteOfTheEditedTile()
+{
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    const rust::Vec<uint32_t> unique = pictura::shp_palette_unique(*view);
+    QCOMPARE(int(unique.size()), 256);
+    // Slot 0's diamond centre, 6 px down on the canvas.
+    QVERIFY(dab(view, unique[22] | 0xFF000000u, 30, 21));
+    QVERIFY(pictura::document_api::isDirty(*view));
+    QVERIFY(window_->saveActive());
+    QVERIFY(!pictura::document_api::isDirty(*view));
+    const QByteArray saved = readFile(tmp_);
+    const QList<int> changed = differing(saved, terrain());
+    QCOMPARE(saved.size(), terrain().size());
+    QCOMPARE(changed.size(), 1);
+    QVERIFY(changed[0] >= kTile0Pixels && changed[0] < kTile0Pixels + kDiamond);
+    QCOMPARE(int(quint8(saved[changed[0]])), 22);
+}
+
+void TmpTest::offPaletteSaveAsksFirst()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    QVERIFY(dab(view, 0xFF010203u, 60, 36));
+    QCOMPARE(pictura::tmp_check(*view).off_palette, 1);
+    {
+        GateClicker cancel(QStringLiteral("shpGateCancel"));
+        QVERIFY(!window_->saveActive());
+        QVERIFY(cancel.seen());
+    }
+    QCOMPARE(readFile(tmp_), terrain());
+    const int history = view->history_index();
+    {
+        GateClicker snap(QStringLiteral("shpGateSnap"));
+        QVERIFY(window_->saveActive());
+        QVERIFY(snap.seen());
+    }
+    QCOMPARE(pictura::tmp_check(*view).off_palette, 0);
+    QCOMPARE(view->history_index(), history + 1);
+    QVERIFY(pictura::tmp_sniff_file(tmp_));
+    const QList<int> changed = differing(readFile(tmp_), terrain());
+    QCOMPARE(changed.size(), 1);
+    QVERIFY(changed[0] >= kTile0Pixels + kDiamond);
+}
+
+void TmpTest::offPaletteSaveIsRefusedWithoutDialogs()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    QVERIFY(dab(view, 0xFF010203u, 60, 36));
+    const QString out = dir_.filePath(QStringLiteral("out.tem"));
+    QVERIFY(!window_->saveActiveAs(out));
+    QVERIFY(!QFileInfo::exists(out));
+    QVERIFY2(support_->lastGateMessage().contains(QStringLiteral("palette colours (tiles 1)")),
+             qPrintable(support_->lastGateMessage()));
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("Snap them")));
+}
+
+void TmpTest::showMeSelectsTheFirstOffPixel()
+{
+    pictura::ShpSupport::setGateInteractive(1);
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    QVERIFY(dab(view, 0xFF010203u, 60, 36));
+    {
+        GateClicker show(QStringLiteral("shpGateShow"));
+        QVERIFY(!window_->saveActive());
+        QVERIFY(show.seen());
+    }
+    QCOMPARE(support_->tiles()->currentSlot(), 1);
+    const rust::Vec<int32_t> bounds = view->selection_bounds_extents();
+    QCOMPARE(int(bounds.size()), 4);
+    QCOMPARE(QRect(bounds[0], bounds[1], bounds[2], bounds[3]), QRect(60, 36, 1, 1));
+    QCOMPARE(readFile(tmp_), terrain());
+}
+
+void TmpTest::aPixelOutsideTheTilesIsClipped()
+{
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    const rust::Vec<uint32_t> unique = pictura::shp_palette_unique(*view);
+    QVERIFY(dab(view, unique[22] | 0xFF000000u, 89, 0));
+    QCOMPARE(pictura::tmp_check(*view).outside, 1);
+    pictura::ShpSupport::setGateInteractive(0);
+    QVERIFY(!window_->saveActive());
+    QVERIFY(support_->lastGateMessage().contains(QStringLiteral("Clip them")));
+    pictura::ShpSupport::setGateInteractive(1);
+    {
+        GateClicker clip(QStringLiteral("shpGateClip"));
+        QVERIFY(window_->saveActive());
+        QVERIFY(clip.seen());
+    }
+    QCOMPARE(pictura::tmp_check(*view).outside, 0);
+    QCOMPARE(readFile(tmp_), terrain());
+}
+
+void TmpTest::theSaveFiltersOfferTmp()
+{
+    const QStringList& filters = pictura::saveFileFilters();
+    const int tmp = filters.indexOf(
+        QStringLiteral("Westwood TMP terrain (*.TEM *.SNO *.URB *.UBN *.DES *.LUN *.TMP)"));
+    QCOMPARE(tmp, 9);
+    QCOMPARE(filters.size(), 11);
+    QVERIFY(filters.last().contains(QStringLiteral("*.LUN")));
+    QCOMPARE(pictura::defaultSuffixForFilter(tmp), QStringLiteral(".tem"));
+    QCOMPARE(pictura::pathForSaveFilter(QStringLiteral("/x/a.png"), tmp, 0),
+             QStringLiteral("/x/a.tem"));
+    QCOMPARE(pictura::pathForSaveFilter(QStringLiteral("/x/a.SNO"), tmp, tmp),
+             QStringLiteral("/x/a.sno"));
+    QCOMPARE(pictura::pathForSaveFilter(QStringLiteral("/x/tree.des"), 8, 8),
+             QStringLiteral("/x/tree.des"));
+    QVERIFY(pictura::isWritableSavePath(QStringLiteral("/x/a.lun")));
+    QVERIFY(pictura::isWritableSavePath(QStringLiteral("/x/a.tmp")));
+
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    QCOMPARE(pictura::defaultSaveFilterIndex(view), tmp);
+    QVERIFY(!pictura::savePathNeedsFormatDialog(tmp_, view, false));
+    QVERIFY(pictura::savePathNeedsFormatDialog(dir_.filePath(QStringLiteral("a.shp")), view,
+                                               false));
+}
+
+void TmpTest::aTemplateDoesNotSaveAsShp()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    QVERIFY(open(tmp_));
+    const QString out = dir_.filePath(QStringLiteral("clear01.shp"));
+    QVERIFY(!window_->saveActiveAs(out));
+    QVERIFY(!QFileInfo::exists(out));
+    QVERIFY2(support_->lastGateMessage().contains(QStringLiteral("saves as a TMP")),
+             qPrintable(support_->lastGateMessage()));
+}
+
+void TmpTest::aTheaterSuffixedShpSavesByteIdentical()
+{
+    const QString path = dir_.filePath(QStringLiteral("tree01.tem"));
+    QVERIFY(writeFile(path, sprite()));
+    QVERIFY(open(path));
+    const QString out = dir_.filePath(QStringLiteral("tree02.tem"));
+    QVERIFY(window_->saveActiveAs(out));
+    QCOMPARE(readFile(out), sprite());
+    // A sprite is not a template: .tmp is refused.
+    pictura::ShpSupport::setGateInteractive(0);
+    QVERIFY(!window_->saveActiveAs(dir_.filePath(QStringLiteral("tree.tmp"))));
+    pictura::forgetFolderPalette(path);
 }
 
 QTEST_MAIN(TmpTest)

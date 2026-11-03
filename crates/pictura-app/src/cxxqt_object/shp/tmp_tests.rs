@@ -174,3 +174,93 @@ fn change_palette_recolours_the_colour_layers_by_index() {
 fn tmp_rebind(rust: &mut PictureViewRust, choice: PaletteChoice) -> Result<bool, String> {
     rebind_template(rust, choice)
 }
+
+#[test]
+fn an_unchanged_template_saves_byte_identical() {
+    let rust = opened_tmp(bytes());
+    assert_eq!(encode_template(doc(&rust)).expect("saves"), bytes());
+    let (_, _, scan) = scan_document(doc(&rust)).unwrap();
+    assert_eq!((scan.off_palette, scan.off_scale, scan.outside), (0, 0, 0));
+}
+
+#[test]
+fn a_pencil_dab_changes_one_byte_of_that_tile() {
+    use super::tests::{dab, pencil};
+    let mut rust = opened_tmp(bytes());
+    let unique = unique_colours(&choice().palette);
+    dab(&mut rust, pencil(unique.argb[50]), 30.5, 15.5);
+    let saved = encode_template(doc(&rust)).expect("an exact dab saves");
+    let original = bytes();
+    assert_eq!(saved.len(), original.len());
+    let differ: Vec<usize> = (0..saved.len())
+        .filter(|&i| saved[i] != original[i])
+        .collect();
+    assert_eq!(differ.len(), 1, "one pixel, one byte");
+    let t = pictura_shp::tmp::parse(&saved).unwrap();
+    let tile0 = t.tiles[0].as_ref().unwrap();
+    assert_eq!(tile0.image[15 * CX + 30], 50);
+    let record = tile0.offset;
+    assert!(differ[0] > record && differ[0] < t.tiles[3].as_ref().unwrap().offset);
+    assert!(saved.ends_with(b"tail"));
+}
+
+#[test]
+fn a_soft_dab_is_refused_until_snapped() {
+    use super::tests::{dab, pencil};
+    let mut rust = opened_tmp(bytes());
+    let unique = unique_colours(&choice().palette);
+    let mut soft = pencil(unique.argb[21] ^ 0x0000_0300);
+    soft.aliased = false;
+    soft.diameter = 5;
+    soft.hardness = 0;
+    dab(&mut rust, soft, 30.0, 45.0);
+    let (_, _, scan) = scan_document(doc(&rust)).unwrap();
+    assert!(scan.off_palette > 0);
+    assert_eq!(scan.off_slots, vec![3]);
+    let refused = encode_template(doc(&rust)).unwrap_err();
+    assert!(refused.contains("not palette colours"), "{refused}");
+
+    let changed = snap_template_rust(&mut rust).expect("snaps");
+    assert_eq!(changed, scan.off_palette);
+    rust.apply_edit("Snap to Palette", Edit::Full);
+    let saved = encode_template(doc(&rust)).expect("saves after the snap");
+    let t = pictura_shp::tmp::parse(&saved).unwrap();
+    assert_eq!(
+        t.tiles[0],
+        template_of(doc(&rust)).unwrap().1.tiles[0],
+        "the tile the dab never reached keeps its pixels"
+    );
+}
+
+#[test]
+fn a_pixel_outside_every_tile_is_refused_until_clipped() {
+    use super::tests::{dab, pencil};
+    let mut rust = opened_tmp(bytes());
+    let unique = unique_colours(&choice().palette);
+    dab(&mut rust, pencil(unique.argb[50]), 59.5, 0.5);
+    let (_, _, scan) = scan_document(doc(&rust)).unwrap();
+    assert_eq!(scan.outside, 1);
+    assert_eq!(scan.first_outside, Some((59, 0)));
+    let refused = encode_template(doc(&rust)).unwrap_err();
+    assert!(refused.contains("outside every tile"), "{refused}");
+
+    assert_eq!(clip_template_rust(&mut rust), Ok(1));
+    rust.apply_edit("Clip to Tiles", Edit::Full);
+    assert_eq!(encode_template(doc(&rust)).expect("saves"), bytes());
+}
+
+#[test]
+fn a_missing_or_extra_layer_is_refused_with_the_reason() {
+    let mut rust = opened_tmp(bytes());
+    rust.session.doc.as_mut().unwrap().layers[1].name = "Sketch".into();
+    let refused = encode_template(doc(&rust)).unwrap_err();
+    assert!(refused.contains("\"Sketch\""), "{refused}");
+}
+
+#[test]
+fn tmp_suffixes_are_the_theater_ones_and_tmp() {
+    for s in ["tem", "sno", "urb", "ubn", "des", "lun", "tmp"] {
+        assert!(tmp_suffix(s));
+    }
+    assert!(!tmp_suffix("shp") && !tmp_suffix("png"));
+}

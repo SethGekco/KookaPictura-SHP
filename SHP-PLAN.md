@@ -932,3 +932,35 @@ Phase 4, TMP terrain (recorded as each piece landed; the OpenSpec change is
   Formats and in a "Westwood TMP terrain and theater SHP" filter; the
   content decides: the SHP sniffer runs first and a TMP is tried when it
   refuses (an SHP's first u16 is 0, so the two never both accept).
+- **Saving a template** reads the layers back by name (Tiles, Extras ...,
+  Z Tiles, Z Extras ...): a missing, renamed, duplicated or extra layer, a
+  group, mask or adjustment, or a changed canvas size is refused with the
+  reason, never guessed at. The template the resource holds gets the
+  layers' pixels and its fields, and the in-place writer puts every block
+  over the original file, so a tile nobody touched keeps every byte and a
+  one-pixel edit changes one byte. Painting depths into a tile's Z layer
+  where it had none gives it z-data (the file is then laid out afresh).
+  New extra blocks cannot be added: an extra block's size and position are
+  in the tile header and the canvas does not say where one should go.
+- **The TMP save gate** follows the SHP one: off-palette colour pixels and
+  Z pixels that are not depths ask [Snap and Save] / [Show Me] / [Cancel];
+  pixels outside every tile's diamond and extra block of their layer ask
+  [Clip and Save] / [Show Me] / [Cancel]. Show Me selects the first such
+  pixel and brings its tile into view. Without dialogs (offscreen, the
+  control server) the save is refused with the reason. A template does not
+  save as `.shp`, an image that is neither a template nor an SHP sheet
+  does not save under a theater suffix (no conversion into TMP), and only a
+  template saves as `.tmp`; an SHP sheet saves under its theater suffix
+  as before. Save As offers "Westwood TMP terrain" as filter 9 (All
+  Formats moved to 10) with `.tem` as the default suffix; a typed theater
+  suffix is kept.
+- **Through the app** (2026-11-02, control server, offscreen, CPU
+  compositing): 301 TMPs (every ninth of the 2,745 plus each suffix; the
+  corpus TMPs are all `.tem` or `.des`) open and save unchanged
+  byte-identical, peak RSS 210 MB; 50 theater-suffixed SHPs too (244 MB). A
+  one-pixel recolour of tile 8 of `ovrps01.tem` changed one byte, and
+  Ochre's `cnctmp.py` reads every other tile, field and block unchanged
+  and exactly that pixel 157 -> 162. An off-palette pixel and a pixel
+  outside the tiles are refused headless with "Snap them" / "Clip them".
+  The SHP regression sample (321 files, `phase2-e2e.py`) is still 321 of
+  321 byte-identical.

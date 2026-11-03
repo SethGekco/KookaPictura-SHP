@@ -1022,10 +1022,41 @@ pub(super) use unit::{
 
 #[path = "tmp.rs"]
 mod tmp;
-pub(in crate::cxxqt_object) use tmp::decode_tmp;
+pub(in crate::cxxqt_object) use tmp::{decode_tmp, tmp_suffix};
 pub(super) use tmp::{
-    tmp_info, tmp_land_label, tmp_ramp_label, tmp_sniff_file, tmp_tile_at, tmp_tiles,
+    tmp_check, tmp_clip, tmp_info, tmp_land_label, tmp_ramp_label, tmp_snap, tmp_sniff_file,
+    tmp_tile_at, tmp_tiles,
 };
+
+/// Save to a Westwood path: a TMP template under a TMP suffix (the theater
+/// suffixes and `.tmp`), an SHP sheet under `.shp` or a theater suffix.
+pub(in crate::cxxqt_object) fn save_westwood(
+    view: Pin<&mut PictureView>,
+    path: &str,
+    suffix: &str,
+) -> bool {
+    let template = view
+        .rust()
+        .session
+        .doc
+        .as_ref()
+        .is_some_and(|d| tmp::tmp_resource(d).is_some());
+    if template {
+        if !tmp_suffix(suffix) {
+            set_error(
+                "A TMP template saves as a TMP (.tem, .sno, .urb, .ubn, .des, .lun or .tmp), \
+                 not as an SHP.",
+            );
+            return false;
+        }
+        return tmp::save_tmp(view, path);
+    }
+    if suffix == "tmp" {
+        set_error("Only a TMP template saves as .tmp.");
+        return false;
+    }
+    save_shp(view, path)
+}
 
 #[path = "authoring.rs"]
 mod authoring;

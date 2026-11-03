@@ -38,6 +38,8 @@ public:
     int currentSlot() const;
     // Select the row of `slot`, bring the tile into view, highlight it.
     void focusSlot(int slot);
+    // Bring canvas pixel `point` into view (zooming in on a small canvas).
+    void focusPoint(const QPoint& point);
 
     QTableWidget* table() const { return table_; }
     QCheckBox* outlines() const { return outlines_; }

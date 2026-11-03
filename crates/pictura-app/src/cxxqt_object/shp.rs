@@ -24,7 +24,8 @@ mod imp;
 use super::qobject::PictureView;
 use imp::*;
 pub(in crate::cxxqt_object) use imp::{
-    decode_shp, save_shp, with_document_palette, with_open_request, OnDisk, OpenRequest,
+    decode_shp, save_westwood, tmp_suffix, with_document_palette, with_open_request, OnDisk,
+    OpenRequest,
 };
 
 #[cxx_qt::bridge]
@@ -164,6 +165,26 @@ pub mod ffi {
         palette_path: QString,
     }
 
+    /// What saving a TMP document would find (`tmp_check`).
+    #[namespace = "pictura"]
+    struct TmpCheck {
+        /// Why the document cannot be read as a template at all (a missing
+        /// or extra layer, a changed canvas); empty when it can.
+        error: QString,
+        /// Colour pixels that are not palette colours, inside tiles.
+        off_palette: i32,
+        /// Z-layer pixels that are not depths 0-31 (or "no z").
+        off_scale: i32,
+        /// The slots holding either, ascending.
+        off_slots: Vec<i32>,
+        /// The first such pixel, canvas `x, y`; empty when none.
+        first_off: Vec<i32>,
+        /// Pixels drawn outside every tile's diamond and extra block of
+        /// their layer.
+        outside: i32,
+        first_outside: Vec<i32>,
+    }
+
     /// One tile of a TMP document. Positions are canvas pixels; colors
     /// `0xRRGGBB`.
     #[namespace = "pictura"]
@@ -217,6 +238,18 @@ pub mod ffi {
 
         /// The slope a ramp type names.
         fn tmp_ramp_label(ramp: i32) -> QString;
+
+        /// Scan a TMP document the way Save will.
+        fn tmp_check(view: &PictureView) -> TmpCheck;
+
+        /// Snap every off-palette colour pixel and off-scale z pixel inside
+        /// the tiles (recorded as "Snap to Palette"); the pixels changed, or
+        /// -1 with the reason in `shp_last_error`.
+        fn tmp_snap(view: Pin<&mut PictureView>) -> i32;
+
+        /// Clear every pixel outside the tiles and extra blocks (recorded as
+        /// "Clip to Tiles"); the pixels changed, or -1.
+        fn tmp_clip(view: Pin<&mut PictureView>) -> i32;
 
         /// The `.pal` the next `open_image_start` on this view uses for an
         /// SHP; empty for the built-in grey fallback.

@@ -90,7 +90,14 @@ QString frameList(const ::rust::Vec<int32_t>& frames)
 
 bool isShpPath(const QString& path)
 {
-    return QFileInfo(path).suffix().compare(QStringLiteral("shp"), Qt::CaseInsensitive) == 0;
+    return QFileInfo(path).suffix().compare(QStringLiteral("shp"), Qt::CaseInsensitive) == 0
+        || isTmpPath(path);
+}
+
+bool isTmpPath(const QString& path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return suffix == QStringLiteral("tmp") || theaterSuffixes().contains(suffix);
 }
 
 ShpSupport::ShpSupport(QMainWindow* frame, ColorState* colors)
@@ -387,8 +394,24 @@ bool ShpSupport::saveGate(PictureView* view, bool dialogs, const QString& path)
     // The save that follows a passed gate recomputes the radar colors when
     // the document asks for it (taken by that save, so it never lingers).
     shp_set_save_radar(false);
+    if (view && tmp_info(*view).valid) {
+        return tmpGate(view, dialogs, path);
+    }
     if (view && !shp_info(*view).valid && !path.isEmpty()) {
+        if (isTmpPath(path)) {
+            gateMessage_ = tr("Only a TMP terrain template or an SHP sheet saves as .%1; "
+                              "turning an image into a TMP is not supported.")
+                               .arg(QFileInfo(path).suffix().toLower());
+            message(gateMessage_);
+            return false;
+        }
         return convertForSave(view, path, dialogs);
+    }
+    if (view && QFileInfo(path).suffix().compare(QStringLiteral("tmp"), Qt::CaseInsensitive)
+                    == 0) {
+        gateMessage_ = tr("Only a TMP terrain template saves as .tmp.");
+        message(gateMessage_);
+        return false;
     }
     const bool ok =
         cleanGate(view, dialogs, false) && unitSaveCheck(view, dialogs && interactive());
