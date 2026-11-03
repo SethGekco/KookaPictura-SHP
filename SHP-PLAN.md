@@ -857,3 +857,13 @@ Phase 3, unit tools (recorded as each piece landed):
   through the same handler as an out-of-memory error): `gpu_failure.rs` in
   pictura-render and `tst_gpu_fallback` (the open finishes on the CPU, the
   notice shows, later opens stay on the CPU).
+- **GPU re-run after both fixes** (2026-11-02, the release app on the GPU,
+  `WGPU_BACKEND` unset, NVIDIA RTX 3070 Ti through Vulkan): the 21 paged
+  files of the corpus list (7 x `ambusher.shp`, the 1,216-frame sprite of
+  the hang, 7 x `sppnuke.shp`, 7 large explosions) each opened and saved
+  byte-identical, 21 of 21, 3.9-5.3 s per open, VmHWM 4.1 GB; every open
+  ran on the GPU, nothing hung, nothing fell back, and the app log has no
+  GPU failure or panic. The card had 840 MiB of 8 GB in use (no other
+  program held video memory this time), so the original out-of-memory did
+  not recur; the fallback itself is covered by the injected-failure tests.
+  Self-test 471 of 471.
