@@ -76,6 +76,12 @@ effect art directly.
   document (one frame per tile, or one frame of the whole template, extra
   blocks drawn over the tiles or not); tile headers and z-data have no
   place in an SHP and are not carried over, and the template is unchanged.
+  The Tiles panel also reshapes a template: move a tile to a free cell
+  (redrawn there with its extra block), add a blank tile, remove a tile,
+  and add or remove a tile's extra block (a new one starts transparent,
+  without z-data), each one undoable step. Save still keeps every untouched
+  tile byte for byte: new blocks and tiles are added at the end of the file
+  (the save status says so).
   MIX archives (`ra2.mix`, `expandmd01.mix` and the archives nested in
   them; TD/RA1 and RA/TS/RA2 layouts, encrypted and checksummed indexes)
   open from File > Open in a MIX browser: a tree of every entry with its

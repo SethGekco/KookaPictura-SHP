@@ -4,8 +4,8 @@
 use pictura_shp::palette::{fallback_palette, unique_colours, Palette};
 use pictura_shp::sheet::inverse;
 use pictura_shp::terrain::{
-    clip_outside, fields_of, read_back, render, rgba_z, snap, snap_z, tile_at, z_rgba, Placement,
-    Plane, TmpResource,
+    clip_outside, fields_of, read_back, render, rgba_z, shapes_of, snap, snap_z, tile_at, z_rgba,
+    ExtraShape, Placement, Plane, Shape, TmpResource,
 };
 use pictura_shp::tmp::{build, diamond_rows, Template, Tile, TileFields, Z_NONE};
 
@@ -211,6 +211,7 @@ fn the_resource_keeps_palette_original_and_fields() {
         palette_path: "/x/isotem.pal".into(),
         original,
         fields: fields_of(&parsed),
+        shapes: None,
     };
     resource.palette.name = "isotem.pal".into();
     let section = resource.store(b"8BIM\x03\xed\x00\x00\x00\x00\x00\x02ab");
@@ -231,4 +232,91 @@ fn the_resource_keeps_palette_original_and_fields() {
         4
     );
     assert!(Placement::new(&parsed).unwrap().layers()[0].plane == Plane::Tiles);
+}
+
+#[test]
+fn shapes_move_add_and_remove_tiles_and_extras_and_survive_the_block() {
+    let t = template();
+    let original = build(&t, None).unwrap();
+    let parsed = pictura_shp::tmp::parse(&original).unwrap();
+    let mut resource = TmpResource {
+        palette: fallback_palette(),
+        palette_path: String::new(),
+        original,
+        fields: fields_of(&parsed),
+        shapes: None,
+    };
+    let shapes = shapes_of(&parsed);
+    assert_eq!(shapes.len(), 3);
+    assert_eq!(
+        shapes[2].1.extra.map(|e| (e.x, e.y, e.kept)),
+        Some((45, -10, true))
+    );
+    // Tile 2 (with its extra) moves to slot 0, tile 0 is removed, tile 1
+    // loses its extra, and a new tile with a new extra goes in slot 2.
+    let mut moved = shapes[2].1;
+    moved.x -= 60;
+    moved.y -= 30;
+    let e = moved.extra.as_mut().unwrap();
+    e.x -= 60;
+    e.y -= 30;
+    let mut bare = shapes[1].1;
+    bare.extra = None;
+    let new = Shape {
+        source: None,
+        x: 60,
+        y: 30,
+        extra: Some(ExtraShape {
+            x: 60,
+            y: 0,
+            w: 60,
+            h: 30,
+            kept: false,
+        }),
+    };
+    resource.shapes = Some(vec![(0, moved), (1, bare), (2, new)]);
+    resource.fields = vec![
+        (0, parsed.tiles[2].as_ref().unwrap().fields),
+        (1, TileFields::default()),
+    ];
+    let back = TmpResource::find(&resource.store(&[])).unwrap();
+    assert_eq!(back, resource, "version 2 round-trips");
+    let r = back.template().unwrap();
+    let t0 = r.tiles[0].as_ref().unwrap();
+    assert_eq!((t0.x, t0.y, t0.extra_x, t0.extra_y), (0, 0, -15, -40));
+    assert_eq!(
+        t0.extra,
+        parsed.tiles[2].as_ref().unwrap().extra,
+        "a kept extra keeps its data"
+    );
+    assert!(t0.extra_z.is_some() && t0.z.is_some());
+    assert_eq!(t0.fields.land, 15);
+    let t1 = r.tiles[1].as_ref().unwrap();
+    assert!(t1.extra.is_none() && t1.extra_w == 0);
+    let t2 = r.tiles[2].as_ref().unwrap();
+    assert_eq!(t2.offset, 0, "a new tile");
+    assert_eq!(t2.extra.as_deref(), Some(&vec![0u8; 1800][..]));
+    assert!(
+        t2.extra_z.is_none() && t2.z.is_none(),
+        "no z-data by default"
+    );
+    // Saved, it reads back as exactly that template.
+    let saved = build(&r, Some(&resource.original)).unwrap();
+    let again = pictura_shp::tmp::parse(&saved).unwrap();
+    for slot in 0..3 {
+        let (a, b) = (
+            again.tiles[slot].as_ref().unwrap(),
+            r.tiles[slot].as_ref().unwrap(),
+        );
+        assert_eq!(
+            (a.x, a.y, a.extra_x, a.extra_y, &a.extra),
+            (b.x, b.y, b.extra_x, b.extra_y, &b.extra)
+        );
+    }
+    // Without shapes the block stays version 1.
+    resource.shapes = None;
+    assert_eq!(&resource.encode()[4..6], &[0, 1]);
+    // A shape out of range is refused rather than guessed.
+    resource.shapes = Some(vec![(9, new)]);
+    assert!(resource.template().is_none());
 }

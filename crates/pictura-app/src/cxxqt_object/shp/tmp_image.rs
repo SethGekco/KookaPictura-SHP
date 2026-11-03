@@ -89,6 +89,7 @@ pub(in crate::cxxqt_object) fn template_from_image(
         palette_path: choice.path.clone(),
         original: bytes,
         fields: fields_of(&template),
+        shapes: None,
     };
     let check = resource
         .template()

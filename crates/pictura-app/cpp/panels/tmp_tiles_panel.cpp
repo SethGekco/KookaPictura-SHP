@@ -4,6 +4,8 @@
 #include "panels/tmp_tiles_panel.h"
 
 #include "image_view.h"
+#include "shp_support.h"
+#include "tmp_authoring.h"
 
 #include <QtCore/QRegularExpression>
 #include <QtCore/QSignalBlocker>
@@ -12,6 +14,7 @@
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
+#include <QtWidgets/QPushButton>
 #include <QtWidgets/QTableWidget>
 #include <QtWidgets/QVBoxLayout>
 
@@ -71,11 +74,40 @@ TmpTilesPanel::TmpTilesPanel(QWidget* parent)
                           "is one undoable step that Save writes into the tile header."));
     layout->addWidget(table_, 1);
 
+    auto* edits = new QHBoxLayout;
+    const auto button = [this, edits](const QString& text, const char* name,
+                                      const QString& tip) {
+        auto* b = new QPushButton(text, this);
+        b->setObjectName(QLatin1String(name));
+        b->setToolTip(tip);
+        edits->addWidget(b);
+        return b;
+    };
+    move_ = button(tr("Move..."), "tmpTileMove",
+                   tr("Move the selected tile to a free cell: its header position follows the "
+                      "grid and it is redrawn there with its extra block."));
+    add_ = button(tr("Add..."), "tmpTileAdd",
+                  tr("Add a blank tile in a free cell (placed by the grid from the first tile, "
+                     "with its height, land and ramp)."));
+    remove_ = button(tr("Remove"), "tmpTileRemove", tr("Remove the selected tile."));
+    addExtra_ = button(tr("Add Extra..."), "tmpTileAddExtra",
+                       tr("Give the selected tile an extra block (transparent, no z-data)."));
+    removeExtra_ = button(tr("Remove Extra"), "tmpTileRemoveExtra",
+                          tr("Remove the selected tile's extra block."));
+    edits->addStretch(1);
+    layout->addLayout(edits);
+    connect(move_, &QPushButton::clicked, this, [this] { askMove(); });
+    connect(add_, &QPushButton::clicked, this, [this] { askAdd(); });
+    connect(remove_, &QPushButton::clicked, this, [this] { removeTile(currentSlot()); });
+    connect(addExtra_, &QPushButton::clicked, this, [this] { askExtra(); });
+    connect(removeExtra_, &QPushButton::clicked, this, [this] { removeExtra(currentSlot()); });
+
     connect(table_, &QTableWidget::currentCellChanged, this,
             [this](int row, int, int, int) {
                 if (row >= 0) {
                     focusSlot(table_->item(row, Slot)->data(Qt::UserRole).toInt());
                 }
+                syncButtons();
             });
     connect(outlines_, &QCheckBox::toggled, this, [this] { syncGrid(); });
     // Queued: applying rebuilds the rows, which must not happen while the
@@ -105,6 +137,7 @@ void TmpTilesPanel::refresh()
         table_->setRowCount(0);
         summary_->setText(tr("Not a TMP document"));
         built_ = false;
+        syncButtons();
         return;
     }
     const quint64 revision = view_->canvas_revision();
@@ -120,6 +153,7 @@ void TmpTilesPanel::refresh()
         built_ = true;
     }
     syncGrid();
+    syncButtons();
 }
 
 void TmpTilesPanel::rebuild()
@@ -211,6 +245,153 @@ bool TmpTilesPanel::applyRow(int row)
     return true;
 }
 
+QList<bool> TmpTilesPanel::takenCells() const
+{
+    const TmpInfo info = tmp_info(*view_);
+    QList<bool> taken(qsizetype(std::max(0, info.blocks_x * info.blocks_y)), false);
+    for (const TmpTile& t : tmp_tiles(*view_)) {
+        if (t.slot >= 0 && t.slot < taken.size()) {
+            taken[t.slot] = true;
+        }
+    }
+    return taken;
+}
+
+void TmpTilesPanel::syncButtons()
+{
+    const bool tmp = view_ && tmp_info(*view_).valid;
+    bool tile = false;
+    bool extra = false;
+    bool full = true;
+    if (tmp) {
+        const int slot = currentSlot();
+        for (const TmpTile& t : tmp_tiles(*view_)) {
+            if (t.slot == slot) {
+                tile = true;
+                extra = t.has_extra;
+            }
+        }
+        full = !takenCells().contains(false);
+    }
+    move_->setEnabled(tile && !full);
+    add_->setEnabled(tmp && !full);
+    remove_->setEnabled(tile && tileCount() > 1);
+    addExtra_->setEnabled(tile && !extra);
+    removeExtra_->setEnabled(tile && extra);
+}
+
+bool TmpTilesPanel::reshape(int op, int slot, const QList<int>& args, const QString& done,
+                            int focus)
+{
+    if (!view_ || !tmp_info(*view_).valid) {
+        return false;
+    }
+    const int dropped =
+        tmp_edit_tiles(*view_, op, slot, ::rust::Slice<const int32_t>(args.data(), args.size()),
+                       ShpSupport::allowanceOf(view_));
+    built_ = false;
+    refresh();
+    if (dropped < 0) {
+        emit message(QString(shp_last_error()));
+        return false;
+    }
+    if (focus >= 0) {
+        focusSlot(focus);
+    }
+    QString text = done;
+    if (dropped > 0) {
+        text += tr(" %n pixel(s) outside the tiles had no place on the new canvas and were "
+                   "dropped (Undo brings them back).",
+                   nullptr, dropped);
+    }
+    emit message(text);
+    return true;
+}
+
+bool TmpTilesPanel::moveTile(int slot, int column, int row)
+{
+    const int blocksX = view_ ? tmp_info(*view_).blocks_x : 0;
+    return reshape(0, slot, {column, row},
+                   tr("Tile %1 moved to cell (%2, %3).").arg(slot).arg(column).arg(row),
+                   row * blocksX + column);
+}
+
+bool TmpTilesPanel::addTile(int column, int row)
+{
+    const int blocksX = view_ ? tmp_info(*view_).blocks_x : 0;
+    const int slot = row * blocksX + column;
+    return reshape(1, -1, {column, row},
+                   tr("Blank tile %1 added in cell (%2, %3).").arg(slot).arg(column).arg(row),
+                   slot);
+}
+
+bool TmpTilesPanel::removeTile(int slot)
+{
+    return reshape(2, slot, {}, tr("Tile %1 removed.").arg(slot), -1);
+}
+
+bool TmpTilesPanel::addExtra(int slot, int x, int y, int width, int height)
+{
+    return reshape(3, slot, {x, y, width, height},
+                   tr("Tile %1 has a new %2 x %3 extra block (no z-data).")
+                       .arg(slot)
+                       .arg(width)
+                       .arg(height),
+                   slot);
+}
+
+bool TmpTilesPanel::removeExtra(int slot)
+{
+    return reshape(4, slot, {}, tr("Tile %1's extra block removed.").arg(slot), slot);
+}
+
+bool TmpTilesPanel::askMove()
+{
+    const int slot = currentSlot();
+    if (!view_ || slot < 0) {
+        return false;
+    }
+    const TmpInfo info = tmp_info(*view_);
+    TmpCellDialog dialog(tr("Move Tile"),
+                         tr("Move tile %1 to the cell (it is redrawn there, with its extra "
+                            "block).")
+                             .arg(slot),
+                         info.blocks_x, info.blocks_y, takenCells(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+    return moveTile(slot, dialog.column(), dialog.row());
+}
+
+bool TmpTilesPanel::askAdd()
+{
+    if (!view_) {
+        return false;
+    }
+    const TmpInfo info = tmp_info(*view_);
+    TmpCellDialog dialog(tr("Add Tile"), tr("Add a blank tile in the cell."), info.blocks_x,
+                         info.blocks_y, takenCells(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+    return addTile(dialog.column(), dialog.row());
+}
+
+bool TmpTilesPanel::askExtra()
+{
+    const int slot = currentSlot();
+    if (!view_ || slot < 0) {
+        return false;
+    }
+    const TmpInfo info = tmp_info(*view_);
+    TmpExtraDialog dialog(slot, info.cx, info.cy, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+    const QList<int> v = dialog.values();
+    return addExtra(slot, v[0], v[1], v[2], v[3]);
+}
+
 int TmpTilesPanel::tileCount() const
 {
     return table_->rowCount();
@@ -263,6 +444,7 @@ void TmpTilesPanel::focusSlot(int slot)
         canvas_->centerOnImageRect(area);
     }
     syncGrid();
+    syncButtons();
 }
 
 void TmpTilesPanel::focusPoint(const QPoint& point)

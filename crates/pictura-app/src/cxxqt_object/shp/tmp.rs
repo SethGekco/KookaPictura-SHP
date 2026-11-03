@@ -99,6 +99,7 @@ pub(in crate::cxxqt_object) fn open_template(
         palette_path: choice.path,
         original: bytes.to_vec(),
         fields: fields_of(&template),
+        shapes: None,
     };
     let name = Path::new(path)
         .file_name()
@@ -429,12 +430,19 @@ fn refusal(scan: &Scan) -> Option<String> {
 /// The bytes Save writes for a TMP document: every block over the original
 /// file where the layout allows, so untouched tiles keep every byte.
 pub(in crate::cxxqt_object) fn encode_template(doc: &Document) -> Result<Vec<u8>, String> {
+    encode_template_with_layout(doc).map(|(bytes, _)| bytes)
+}
+
+/// [`encode_template`], with the layout the writer used.
+pub(in crate::cxxqt_object) fn encode_template_with_layout(
+    doc: &Document,
+) -> Result<(Vec<u8>, tmp::Layout), String> {
     let (resource, _, scan) = scan_document(doc)?;
     if let Some(reason) = refusal(&scan) {
         return fail(reason);
     }
     let template = scan.template.ok_or("damaged TMP data")?;
-    tmp::build(&template, Some(&resource.original))
+    tmp::build_with_layout(&template, Some(&resource.original))
         .map_err(|e| format!("Cannot write the template: {e}"))
 }
 
@@ -655,6 +663,10 @@ pub(in crate::cxxqt_object) use tmp_image::{tmp_from_image, tmp_image_cells};
 mod tmp_shp;
 pub(in crate::cxxqt_object) use tmp_shp::tmp_to_shp;
 
+#[path = "tmp_edit.rs"]
+mod tmp_edit;
+pub(in crate::cxxqt_object) use tmp_edit::{tmp_edit_tiles, tmp_save_layout};
+
 #[cfg(test)]
 #[path = "tmp_image_tests.rs"]
 mod tmp_image_tests;
@@ -662,3 +674,7 @@ mod tmp_image_tests;
 #[cfg(test)]
 #[path = "tmp_shp_tests.rs"]
 mod tmp_shp_tests;
+
+#[cfg(test)]
+#[path = "tmp_edit_tests.rs"]
+mod tmp_edit_tests;

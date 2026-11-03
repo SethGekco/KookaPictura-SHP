@@ -40,16 +40,16 @@ files Kooka Pictura upstream also changes; check them first after
 
 Everything else for SHP documents lives in new files:
 `crates/pictura-app/src/cxxqt_object/shp.rs` (bridge declarations) and
-`shp/{imp,window,frames,authoring,unit,tmp,tmp_image,tmp_shp,mix}.rs` with their `*_tests.rs`, `crates/pictura-shp/src/{sheet,resource,unit,tmp,tmp_image,terrain}.rs`, the MIX codec `crates/pictura-shp/src/mix/` with its name list `data/mix-names.txt`, and in
+`shp/{imp,window,frames,authoring,unit,tmp,tmp_image,tmp_shp,tmp_edit,mix}.rs` with their `*_tests.rs`, `crates/pictura-shp/src/{sheet,resource,unit,tmp,tmp_image,terrain}.rs`, the MIX codec `crates/pictura-shp/src/mix/` with its name list `data/mix-names.txt`, and in
 the shell `cpp/shp_palettes.{h,cpp}` (which `.pal` an SHP or a TMP template opens with, MIX archives included),
 `cpp/mix_support.{h,cpp}` and `cpp/panels/mix_browser_panel.{h,cpp}` (the MIX browser, documents from archives, the save prompt, export, palettes in archives, Preferences > MIX Archives),
 `cpp/shp_support.{h,cpp}`, `cpp/shp_support_unit.cpp` and `cpp/shp_support_tmp.cpp` (the TMP save gate) (the dock, `,`/`.` stepping, paging, frame operations, the save gate, the shadow tools, the radar-color save option,
 the File > New SHP and Image > Frame Size menu entries, inserted at runtime after
 File > New and Image > Canvas Size),
 `cpp/shp_authoring.{h,cpp}` (the New SHP, Save As SHP and Frame Size dialogs),
-`cpp/tmp_authoring.{h,cpp}` (the New TMP from Image and the template-to-SHP dialogs; `shp_support_tmp.cpp` adds File > New TMP from Image after New SHP, routes Save As TMP of an image through it and Save As SHP of a template through the conversion),
+`cpp/tmp_authoring.{h,cpp}` (the New TMP from Image and the template-to-SHP dialogs, and the Tiles panel's cell and extra-block dialogs; `shp_support_tmp.cpp` adds File > New TMP from Image after New SHP, routes Save As TMP of an image through it and Save As SHP of a template through the conversion),
 `cpp/shp_undo_focus.{h,cpp}` (Undo/Redo focus the frame they changed),
-`cpp/panels/shp_{frames,palette,playback,unit}_panel.{h,cpp}`, `cpp/panels/tmp_tiles_panel.{h,cpp}` (the Tiles panel of a TMP template), `cpp/image_view_shp.cpp`
+`cpp/panels/shp_{frames,palette,playback,unit}_panel.{h,cpp}`, `cpp/panels/tmp_tiles_panel.{h,cpp}` (the Tiles panel of a TMP template: fields, and Move, Add, Remove, Add Extra and Remove Extra), `cpp/image_view_shp.cpp`
 (the frame grid, tile outlines, house-color preview, onion skin, shadow underlay and off-palette marks) and `cpp/tests/{tst_shp,tst_shp_view,tst_shp_unit,tst_tmp,tst_mix}.cpp` with their
 shared generated sprites in `cpp/tests/shp_fixtures.h`.
 

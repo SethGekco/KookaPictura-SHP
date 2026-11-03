@@ -546,25 +546,119 @@ pub const RESOURCE_ID: u16 = 4849;
 pub const RESOURCE_NAME: &str = "KookaTMP";
 const MAGIC: &[u8; 4] = b"KTMP";
 
+/// An extra block of an edited template: template x, y, width, height, and
+/// whether it is the block the tile's source already had (moved with it)
+/// rather than a new, blank one without z-data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExtraShape {
+    pub x: i32,
+    pub y: i32,
+    pub w: usize,
+    pub h: usize,
+    pub kept: bool,
+}
+
+/// Where a tile of an edited template sits and what it is made from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shape {
+    /// The original file's slot it came from (`None`: a new, blank tile).
+    pub source: Option<usize>,
+    pub x: i32,
+    pub y: i32,
+    pub extra: Option<ExtraShape>,
+}
+
 /// The `KookaTMP` block: everything a TMP document needs beyond its pixels.
-/// Its data, integers big-endian: magic `KTMP`, version 1 (u16), the palette
+/// Its data, integers big-endian: magic `KTMP`, version (u16), the palette
 /// as 256 `0xAARRGGBB`, the palette name and path (u16 length + UTF-8 each),
 /// the original file (u32 length + bytes), then the current fields of every
 /// tile: u16 count, per tile u16 slot, height, land, ramp, radar low (3),
-/// radar high (3).
+/// radar high (3). Version 2 adds the tiles' shapes after an edit moved,
+/// added or removed tiles or extra blocks: u16 count, per tile u16 slot, u16
+/// source slot (`0xFFFF`: new), i32 x, i32 y, u8 extra (0 none, 1 new, 2
+/// kept), i32 extra x, i32 extra y, u16 extra width, u16 extra height. A
+/// block without shapes is written as version 1, so nothing changes for a
+/// document whose tiles were never reshaped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TmpResource {
     pub palette: Palette,
     pub palette_path: String,
     pub original: Vec<u8>,
     pub fields: Vec<(usize, TileFields)>,
+    /// Every tile's shape, slot by slot (`None`: the original's tiles).
+    pub shapes: Option<Vec<(usize, Shape)>>,
+}
+
+/// The shapes of `t`'s tiles as they are: each from its own slot.
+pub fn shapes_of(t: &Template) -> Vec<(usize, Shape)> {
+    t.live()
+        .map(|(slot, tile)| {
+            let extra = tile.extra.as_ref().map(|_| ExtraShape {
+                x: tile.extra_x,
+                y: tile.extra_y,
+                w: tile.extra_w,
+                h: tile.extra_h,
+                kept: true,
+            });
+            (
+                slot,
+                Shape {
+                    source: Some(slot),
+                    x: tile.x,
+                    y: tile.y,
+                    extra,
+                },
+            )
+        })
+        .collect()
+}
+
+/// `original` reshaped: every slot of `shapes` holds its source tile (or a
+/// blank one) at its position, with its extra block kept, new or removed.
+/// `None` when a slot or source is out of range or an extra is too big.
+fn reshaped(original: &Template, shapes: &[(usize, Shape)]) -> Option<Template> {
+    let (cx, cy) = (original.cx, original.cy);
+    let mut tiles: Vec<Option<Tile>> = vec![None; original.tiles.len()];
+    for &(slot, shape) in shapes {
+        let mut tile = match shape.source {
+            Some(source) => original.tiles.get(source)?.clone()?,
+            None => Tile::new(shape.x, shape.y, cx, cy),
+        };
+        tile.x = shape.x;
+        tile.y = shape.y;
+        match shape.extra {
+            None => {
+                (tile.extra, tile.extra_z) = (None, None);
+                (tile.extra_w, tile.extra_h) = (0, 0);
+            }
+            Some(e) => {
+                let side = 1..=crate::tmp::MAX_EXTRA_SIDE;
+                if !side.contains(&e.w) || !side.contains(&e.h) {
+                    return None;
+                }
+                let same =
+                    e.kept && tile.extra.is_some() && (tile.extra_w, tile.extra_h) == (e.w, e.h);
+                if !same {
+                    tile.extra = Some(vec![0; e.w * e.h]);
+                    tile.extra_z = None;
+                }
+                (tile.extra_x, tile.extra_y, tile.extra_w, tile.extra_h) = (e.x, e.y, e.w, e.h);
+            }
+        }
+        *tiles.get_mut(slot)? = Some(tile);
+    }
+    tiles.iter().any(Option::is_some).then(|| Template {
+        tiles,
+        ..original.clone()
+    })
 }
 
 impl TmpResource {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(1100 + self.original.len() + 11 * self.fields.len());
         out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&1u16.to_be_bytes());
+        let version: u16 = if self.shapes.is_some() { 2 } else { 1 };
+        out.extend_from_slice(&version.to_be_bytes());
         for c in self.palette.argb {
             out.extend_from_slice(&c.to_be_bytes());
         }
@@ -582,11 +676,39 @@ impl TmpResource {
             out.extend_from_slice(&f.radar_low);
             out.extend_from_slice(&f.radar_high);
         }
+        if let Some(shapes) = &self.shapes {
+            out.extend_from_slice(&(shapes.len().min(usize::from(u16::MAX)) as u16).to_be_bytes());
+            for (slot, shape) in shapes {
+                out.extend_from_slice(&(*slot as u16).to_be_bytes());
+                let source = shape.source.map_or(u16::MAX, |s| s as u16);
+                out.extend_from_slice(&source.to_be_bytes());
+                out.extend_from_slice(&shape.x.to_be_bytes());
+                out.extend_from_slice(&shape.y.to_be_bytes());
+                let e = shape.extra.unwrap_or(ExtraShape {
+                    x: 0,
+                    y: 0,
+                    w: 0,
+                    h: 0,
+                    kept: false,
+                });
+                let kind = match shape.extra {
+                    None => 0u8,
+                    Some(e) if e.kept => 2,
+                    Some(_) => 1,
+                };
+                out.push(kind);
+                out.extend_from_slice(&e.x.to_be_bytes());
+                out.extend_from_slice(&e.y.to_be_bytes());
+                out.extend_from_slice(&(e.w as u16).to_be_bytes());
+                out.extend_from_slice(&(e.h as u16).to_be_bytes());
+            }
+        }
         out
     }
 
     pub fn decode(data: &[u8]) -> Option<TmpResource> {
-        if data.get(..4)? != MAGIC || data.get(4..6)? != [0, 1] {
+        let version = data.get(4..6)?;
+        if data.get(..4)? != MAGIC || !(version == [0, 1] || version == [0, 2]) {
             return None;
         }
         let mut palette = Palette {
@@ -627,11 +749,47 @@ impl TmpResource {
             ));
             at += 11;
         }
+        let shapes = if version == [0, 2] {
+            let i32_at = |at: usize| -> Option<i32> {
+                Some(i32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
+            };
+            let u16_at = |at: usize| -> Option<u16> {
+                Some(u16::from_be_bytes(data.get(at..at + 2)?.try_into().ok()?))
+            };
+            let count = usize::from(u16_at(at)?);
+            at += 2;
+            let mut shapes = Vec::with_capacity(count);
+            for _ in 0..count {
+                let source = u16_at(at + 2)?;
+                let kind = *data.get(at + 12)?;
+                let extra = ExtraShape {
+                    x: i32_at(at + 13)?,
+                    y: i32_at(at + 17)?,
+                    w: usize::from(u16_at(at + 21)?),
+                    h: usize::from(u16_at(at + 23)?),
+                    kept: kind == 2,
+                };
+                shapes.push((
+                    usize::from(u16_at(at)?),
+                    Shape {
+                        source: (source != u16::MAX).then_some(usize::from(source)),
+                        x: i32_at(at + 4)?,
+                        y: i32_at(at + 8)?,
+                        extra: (kind != 0).then_some(extra),
+                    },
+                ));
+                at += 25;
+            }
+            Some(shapes)
+        } else {
+            None
+        };
         Some(TmpResource {
             palette,
             palette_path,
             original,
             fields,
+            shapes,
         })
     }
 
@@ -645,9 +803,14 @@ impl TmpResource {
         set_block(section, RESOURCE_ID, RESOURCE_NAME, &self.encode())
     }
 
-    /// The template the original file holds, with this block's fields.
+    /// The template the original file holds, reshaped by this block's
+    /// shapes, with this block's fields.
     pub fn template(&self) -> Option<Template> {
-        let mut t = crate::tmp::parse(&self.original).ok()?;
+        let original = crate::tmp::parse(&self.original).ok()?;
+        let mut t = match &self.shapes {
+            Some(shapes) => reshaped(&original, shapes)?,
+            None => original,
+        };
         for (slot, fields) in &self.fields {
             if let Some(Some(tile)) = t.tiles.get_mut(*slot) {
                 tile.fields = *fields;

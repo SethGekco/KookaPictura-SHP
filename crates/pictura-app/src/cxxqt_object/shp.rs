@@ -338,6 +338,28 @@ pub mod ffi {
             allowance: u64,
         ) -> Vec<i32>;
 
+        /// Reshape a TMP template from the Tiles panel, one undoable step:
+        /// `op` 0 moves tile `slot` to cell `args` = [column, row], 1 adds a
+        /// blank tile in that cell, 2 removes tile `slot`, 3 gives tile
+        /// `slot` a new, blank extra block (`args` = [x and y offset from
+        /// the tile, width, height]; no z-data), 4 removes its extra block.
+        /// Checked against the size limit when the canvas grows
+        /// (`allowance` as for `shp_frame_op`). The pixels outside every
+        /// tile that found no place on the new canvas, or -1 with the
+        /// reason in `shp_last_error`.
+        fn tmp_edit_tiles(
+            view: Pin<&mut PictureView>,
+            op: i32,
+            slot: i32,
+            args: &[i32],
+            allowance: u64,
+        ) -> i32;
+
+        /// How Save would write the TMP template now: "in place",
+        /// "appended" (new blocks or tiles added at the end of the file) or
+        /// "fresh" (laid out afresh); empty when it cannot be saved as it is.
+        fn tmp_save_layout(view: &PictureView) -> QString;
+
         /// The `.pal` the next `open_image_start` on this view uses for an
         /// SHP; empty for the built-in grey fallback.
         fn shp_set_open_palette(view: Pin<&mut PictureView>, path: &QString);

@@ -52,7 +52,81 @@ refused with the reason.
 - **WHEN** an open template is saved as `.shp`
 - **THEN** the dialog says what is not carried over, a new SHP document is made and saved, the template still saves byte-identical, and without dialogs the save is refused
 
+### Requirement: Reshaping TMP templates in the Tiles panel
+
+The system SHALL let the user, in the Tiles panel, move the selected tile to
+a free cell of the template grid (its header position following the grid,
+its extra block with it, its pixels redrawn there), add a blank tile in a
+free cell, remove a tile other than the last, give a tile a new extra block
+(transparent, without z-data) and remove a tile's extra block. Each SHALL be
+one undoable History step, checked against the size limit when the canvas
+grows; Save SHALL keep every untouched tile byte for byte and SHALL say in
+the save status when blocks were appended or the file was laid out afresh.
+
+#### Scenario: Reshaping a template document [tmp_reshape_document]
+
+- **WHEN** tiles and extra blocks of a generated template are moved, added and removed, and undone
+- **THEN** pixels follow their tiles, new tiles and extras are blank without z-data, outside pixels move with the canvas, refused edits change nothing, the file saves in place or appended, and undo restores the original bytes
+
+#### Scenario: The Tiles panel buttons [tmp_reshape_panel]
+
+- **WHEN** the panel's Move, Add, Remove, Add Extra and Remove Extra are used on an open template, with undo and redo
+- **THEN** the buttons follow the selection, the dialogs offer a free cell and a tile-sized block above the tile, the template saves byte-identical after undo, and the status names appended blocks
+
+#### Scenario: Another reader agrees [tmp_reshape_ochre]
+
+- **WHEN** a copy of a real template has a tile moved and an extra block added, and is saved and reopened
+- **THEN** it reopens as edited and Ochre's reader sees exactly those changes and nothing else
+
 ## MODIFIED Requirements
+
+### Requirement: TMP terrain codec
+
+The system SHALL recognise a Westwood TMP terrain template by its content,
+independent of its suffix, and SHALL decode its tiles (diamond, z-data,
+extra block and extra z-data, with data offsets relative to the tile record).
+Saving a template SHALL patch the original file: a block that kept its size
+is written over the original bytes, a block that is new or changed size and
+a new tile's record are appended at the end of the file, a moved tile's
+header position and offset-table slot are rewritten, and a removed tile's
+slot is emptied, so a tile the edit did not touch keeps every byte. Only a
+template whose grid differs from the original's, or whose patch would not
+read back as the template, SHALL be laid out afresh.
+
+#### Scenario: A template round-trips [tmp_codec_roundtrip]
+
+- **WHEN** a generated template with empty slots, z-data and an extra block is built, parsed and built again
+- **THEN** every tile decodes as built and the second build is byte-identical
+
+#### Scenario: Untouched data survives an edit [tmp_codec_preserve]
+
+- **WHEN** one pixel of one tile, or one tile's height, ramp or radar color, changes in a file with garbage header fields, gaps and a tail
+- **THEN** only the bytes of that pixel or those fields differ
+
+#### Scenario: New blocks are appended [tmp_codec_append]
+
+- **WHEN** a tile gains z-data or an extra block, a z-less tile's extra block gains z-data, or a tile is added
+- **THEN** the new data is appended, only that tile's header fields and slot change before it, an added extra block has no z-data offset, and extra z-data brings a blank z diamond
+
+#### Scenario: Moved and removed tiles and extras [tmp_codec_reshape]
+
+- **WHEN** a tile moves to an empty slot, a tile is removed, or an extra block is removed
+- **THEN** only the slots and the header position, the slot, or the flag differ
+
+#### Scenario: A new grid is laid out afresh [tmp_codec_rebuild]
+
+- **WHEN** every edit is made at once, the grid is widened, or a slot points at damaged data
+- **THEN** the edits read back as made, the wider grid is laid out afresh, and a damaged slot is kept in place but refused by a rebuild
+
+#### Scenario: The sniffer refuses non-templates [tmp_codec_sniff]
+
+- **WHEN** the bytes are an SHP, have an unknown tile size, an offset inside the table, or no whole tile
+- **THEN** the sniffer refuses them
+
+#### Scenario: Real templates [tmp_codec_corpus]
+
+- **WHEN** the owner's real theater files are read
+- **THEN** every TMP decodes as an independent reader does, re-encodes byte-identical, and a one-pixel edit changes one byte
 
 ### Requirement: Saving TMP terrain documents
 

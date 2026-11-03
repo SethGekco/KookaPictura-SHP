@@ -29,11 +29,17 @@
 //! z-data are plain rectangles.
 //!
 //! The writer ([`build`]) patches the original file in place whenever the
-//! layout still fits (every block keeps its size), so everything this module
-//! does not model (the uninitialised bytes old tools left in unused header
-//! fields, gaps, a tail) stays byte for byte. Otherwise it lays the records
-//! out afresh like Ochre's `build_tmp`, keeping each tile's original 52
-//! header bytes and changing only the fields it manages.
+//! grid is the same, so everything this module does not model (the
+//! uninitialised bytes old tools left in unused header fields, gaps, a tail)
+//! stays byte for byte: a block that kept its size is written over itself, a
+//! block that is new or changed size (z-data, an extra block) and a new
+//! tile's whole record are appended at the end of the file, a moved tile
+//! gets its header position and offset-table slot rewritten, and a removed
+//! tile's slot becomes 0 (its record stays as unreferenced bytes). Only when
+//! the grid itself differs, or what was written would not read back as the
+//! template, does it lay the records out afresh like Ochre's `build_tmp`,
+//! keeping each tile's original 52 header bytes and changing only the fields
+//! it manages. [`build_with_layout`] says which of these it did.
 
 use std::fmt;
 
@@ -395,25 +401,155 @@ pub fn parse(data: &[u8]) -> Result<Template, Error> {
     })
 }
 
-/// Encode `template`. With the file it was read from, every block that kept
-/// its size is written over the original bytes in place (so a tile that did
-/// not change keeps every byte, and so does everything between and after the
-/// records); when a block appeared or disappeared, the file is laid out
-/// afresh (see the module docs).
+/// How [`build_with_layout`] wrote a template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    /// Over the original file, the same length.
+    InPlace,
+    /// Over the original file, with blocks or records added at its end.
+    Appended,
+    /// Laid out afresh (no original, a different grid, or an original this
+    /// module could not patch faithfully).
+    Fresh,
+}
+
+/// Encode `template`. With the file it was read from, it is patched in
+/// place (see the module docs), so a tile that did not change keeps every
+/// byte, and so does everything between and after the records; otherwise
+/// the file is laid out afresh.
 pub fn build(template: &Template, original: Option<&[u8]>) -> Result<Vec<u8>, Error> {
+    build_with_layout(template, original).map(|(bytes, _)| bytes)
+}
+
+/// [`build`], saying which layout it used.
+pub fn build_with_layout(
+    template: &Template,
+    original: Option<&[u8]>,
+) -> Result<(Vec<u8>, Layout), Error> {
     if let Some(original) = original {
         if let Some(out) = patch(template, original) {
-            return Ok(out);
+            let layout = if out.len() == original.len() {
+                Layout::InPlace
+            } else {
+                Layout::Appended
+            };
+            return Ok((out, layout));
         }
         if let Some(&slot) = template.unreadable.first() {
             return Err(Error::Unreadable(slot));
         }
     }
-    Ok(rebuild(template))
+    Ok((rebuild(template), Layout::Fresh))
 }
 
-/// The in-place save, or `None` when some block's presence or size changed
-/// (or `template` is not the one `original` holds).
+/// The z-data a tile is written with: its own, or a diamond of "no data"
+/// when only its extra block has z-data (the flag covers both).
+fn written_z(tile: &Tile, cx: usize, cy: usize) -> Option<Vec<u8>> {
+    match (&tile.z, &tile.extra, &tile.extra_z) {
+        (Some(z), _, _) => Some(z.clone()),
+        (None, Some(_), Some(_)) => Some(vec![Z_NONE; cx * cy]),
+        _ => None,
+    }
+}
+
+/// Does `got` (read back) hold what `want` says, as written?
+fn reads_as(got: &Tile, want: &Tile, cx: usize, cy: usize) -> bool {
+    let diamond = |d: &Option<Vec<u8>>| d.as_ref().map(|d| encode_diamond(d, cx, cy));
+    fn extra_z(t: &Tile) -> Option<&Vec<u8>> {
+        t.extra.as_ref().and(t.extra_z.as_ref())
+    }
+    (got.x, got.y, got.fields) == (want.x, want.y, want.fields)
+        && encode_diamond(&got.image, cx, cy) == encode_diamond(&want.image, cx, cy)
+        && diamond(&got.z) == diamond(&written_z(want, cx, cy))
+        && got.extra == want.extra
+        && extra_z(got) == extra_z(want)
+        && (want.extra.is_none()
+            || (got.extra_x, got.extra_y, got.extra_w, got.extra_h)
+                == (want.extra_x, want.extra_y, want.extra_w, want.extra_h))
+}
+
+fn put_i32(out: &mut [u8], at: usize, v: i32) {
+    out[at..at + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+/// Append `bytes` to `out`; their offset relative to the record at `record`.
+fn append(out: &mut Vec<u8>, record: usize, bytes: &[u8]) -> Option<i32> {
+    let off = i32::try_from(out.len() - record).ok()?;
+    out.extend_from_slice(bytes);
+    Some(off)
+}
+
+/// Write `new` over the record `old` was read from (same offset), appending
+/// the blocks that are new or changed size.
+fn patch_record(out: &mut Vec<u8>, old: &Tile, new: &Tile, cx: usize, cy: usize) -> Option<()> {
+    let at = old.offset;
+    let (extra_off, z_off, extra_z_off) = old.data_offsets();
+    let mut head: [u8; TILE_HEADER] = out[at..at + TILE_HEADER].try_into().ok()?;
+    let mut flags = u32_at(&head, 36)?;
+    put_i32(&mut head, 0, new.x);
+    put_i32(&mut head, 4, new.y);
+    new.fields.write(&mut head);
+    let diamond = encode_diamond(&new.image, cx, cy);
+    out[at + TILE_HEADER..at + TILE_HEADER + diamond.len()].copy_from_slice(&diamond);
+    let z = written_z(new, cx, cy);
+    match (&old.z, &z) {
+        (Some(_), Some(z)) => {
+            let z = encode_diamond(z, cx, cy);
+            let start = at + z_off as usize;
+            out[start..start + z.len()].copy_from_slice(&z);
+        }
+        (None, Some(z)) => {
+            let off = append(out, at, &encode_diamond(z, cx, cy))?;
+            put_i32(&mut head, 12, off);
+            flags |= FLAG_Z;
+        }
+        (Some(_), None) => flags &= !FLAG_Z,
+        (None, None) => {}
+    }
+    let kept = old.extra.is_some()
+        && new.extra.is_some()
+        && (old.extra_w, old.extra_h) == (new.extra_w, new.extra_h);
+    match &new.extra {
+        Some(extra) if kept => {
+            let start = at + extra_off as usize;
+            out[start..start + extra.len()].copy_from_slice(extra);
+        }
+        Some(extra) => {
+            let off = append(out, at, extra)?;
+            put_i32(&mut head, 8, off);
+            put_i32(&mut head, 28, i32::try_from(new.extra_w).ok()?);
+            put_i32(&mut head, 32, i32::try_from(new.extra_h).ok()?);
+            flags |= FLAG_EXTRA;
+        }
+        None if old.extra.is_some() => flags &= !FLAG_EXTRA,
+        None => {}
+    }
+    if new.extra.is_some() {
+        put_i32(&mut head, 20, new.extra_x);
+        put_i32(&mut head, 24, new.extra_y);
+        match new.extra_z.as_ref() {
+            Some(extra_z) if kept && old.extra_z.is_some() => {
+                let start = at + extra_z_off as usize;
+                out[start..start + extra_z.len()].copy_from_slice(extra_z);
+            }
+            Some(extra_z) => {
+                let off = append(out, at, extra_z)?;
+                put_i32(&mut head, 16, off);
+            }
+            // No extra z-data: the field must not point at any.
+            None if z.is_some() && !(kept && old.flags & FLAG_Z != 0) => {
+                put_i32(&mut head, 16, 0);
+            }
+            None => {}
+        }
+    }
+    head[36..40].copy_from_slice(&flags.to_le_bytes());
+    out[at..at + TILE_HEADER].copy_from_slice(&head);
+    Some(())
+}
+
+/// The in-place save, or `None` when the grid changed, `template` is not
+/// one `original` holds, or what was written would not read back as it.
 fn patch(template: &Template, original: &[u8]) -> Option<Vec<u8>> {
     let was = parse(original).ok()?;
     let same_shape = (was.blocks_x, was.blocks_y, was.cx, was.cy)
@@ -428,48 +564,118 @@ fn patch(template: &Template, original: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let (cx, cy) = (template.cx, template.cy);
+    let records: std::collections::HashMap<usize, &Tile> =
+        was.live().map(|(_, t)| (t.offset, t)).collect();
     let mut out = original.to_vec();
-    for (old, new) in was.tiles.iter().zip(&template.tiles) {
-        let (old, new) = match (old, new) {
-            (None, None) => continue,
-            (Some(old), Some(new)) => (old, new),
-            _ => return None,
+    for (slot, new) in template.tiles.iter().enumerate() {
+        let entry = FILE_HEADER + 4 * slot;
+        let Some(new) = new else {
+            if was.tiles[slot].is_some() {
+                put_i32(&mut out, entry, 0);
+            }
+            continue;
         };
-        let fits = new.offset == old.offset
-            && (new.x, new.y) == (old.x, old.y)
-            && new.z.is_some() == old.z.is_some()
-            && (new.extra_x, new.extra_y, new.extra_w, new.extra_h)
-                == (old.extra_x, old.extra_y, old.extra_w, old.extra_h)
-            && new.extra.is_some() == old.extra.is_some()
-            && new.extra_z.is_some() == old.extra_z.is_some();
-        if !fits {
-            return None;
-        }
-        let at = old.offset;
-        let (extra_off, z_off, extra_z_off) = old.data_offsets();
-        new.fields.write(&mut out[at..at + TILE_HEADER]);
-        let mut put = |start: usize, bytes: &[u8]| {
-            out[start..start + bytes.len()].copy_from_slice(bytes);
+        let at = if new.offset == 0 {
+            let at = out.len();
+            let mut bytes = record(new, cx, cy);
+            // A new tile has no history: unused fields are zero.
+            out.append(&mut bytes);
+            at
+        } else {
+            patch_record(&mut out, records.get(&new.offset)?, new, cx, cy)?;
+            new.offset
         };
-        put(at + TILE_HEADER, &encode_diamond(&new.image, cx, cy));
-        if let Some(z) = &new.z {
-            put(at + z_off as usize, &encode_diamond(z, cx, cy));
-        }
-        if let Some(extra) = &new.extra {
-            put(at + extra_off as usize, extra);
-        }
-        if let Some(extra_z) = &new.extra_z {
-            put(at + extra_z_off as usize, extra_z);
-        }
+        put_i32(&mut out, entry, i32::try_from(at).ok()?);
     }
-    Some(out)
+    let back = parse(&out).ok()?;
+    let faithful = back
+        .tiles
+        .iter()
+        .zip(&template.tiles)
+        .all(|(got, want)| match (got, want) {
+            (None, None) => true,
+            (Some(got), Some(want)) => reads_as(got, want, cx, cy),
+            _ => false,
+        });
+    faithful.then_some(out)
 }
 
-/// The layout Ochre's `build_tmp` writes: per tile its header, diamond, then
-/// whichever of z, extra and extra z it has, in that order.
+/// One tile's record as Ochre's `build_tmp` lays it out: its header,
+/// diamond, then whichever of z, extra and extra z it has, in that order
+/// (data offsets relative to the record).
+fn record(tile: &Tile, cx: usize, cy: usize) -> Vec<u8> {
+    let cb = diamond_bytes(cx, cy);
+    let z = written_z(tile, cx, cy);
+    let has_z = z.is_some();
+    let has_extra = tile.extra.is_some();
+    let has_extra_z = has_extra && tile.extra_z.is_some();
+    let (ew, eh) = if has_extra {
+        (tile.extra_w, tile.extra_h)
+    } else {
+        (0, 0)
+    };
+    let mut cursor = TILE_HEADER + cb;
+    let (mut z_off, mut extra_off, mut extra_z_off) = (0usize, 0usize, 0usize);
+    if has_z {
+        z_off = cursor;
+        cursor += cb;
+    }
+    if has_extra {
+        extra_off = cursor;
+        cursor += ew * eh;
+        if has_extra_z {
+            extra_z_off = cursor;
+        }
+    }
+    // Keep what the original tool left in the fields this tile does not
+    // use; change only the managed bits of the flag word.
+    let mut head = tile.raw;
+    let managed = FLAG_EXTRA | FLAG_Z;
+    let mut flags = (tile.flags & !managed) | if has_extra { FLAG_EXTRA } else { 0 };
+    if has_z {
+        flags |= FLAG_Z;
+    }
+    put_i32(&mut head, 0, tile.x);
+    put_i32(&mut head, 4, tile.y);
+    head[36..40].copy_from_slice(&flags.to_le_bytes());
+    tile.fields.write(&mut head);
+    // Only fields the flags point at are written: a stale value in a field
+    // the game never reads is the original file's, not ours.
+    let new = tile.offset == 0;
+    if has_z || new {
+        put_i32(&mut head, 12, z_off as i32);
+    }
+    if has_extra || new {
+        put_i32(&mut head, 8, extra_off as i32);
+        for (k, v) in [tile.extra_x, tile.extra_y, ew as i32, eh as i32]
+            .into_iter()
+            .enumerate()
+        {
+            put_i32(&mut head, 20 + 4 * k, v);
+        }
+        if (has_extra && has_z) || new {
+            put_i32(&mut head, 16, extra_z_off as i32);
+        }
+    }
+    let mut out = Vec::with_capacity(cursor + if has_extra_z { ew * eh } else { 0 });
+    out.extend_from_slice(&head);
+    out.extend_from_slice(&encode_diamond(&tile.image, cx, cy));
+    if let Some(z) = &z {
+        out.extend_from_slice(&encode_diamond(z, cx, cy));
+    }
+    if let Some(extra) = &tile.extra {
+        out.extend_from_slice(extra);
+        if has_extra_z {
+            out.extend_from_slice(tile.extra_z.as_deref().unwrap_or_default());
+        }
+    }
+    out
+}
+
+/// The layout Ochre's `build_tmp` writes: the header, the offset table,
+/// then every tile's [`record`] in slot order.
 fn rebuild(template: &Template) -> Vec<u8> {
     let (cx, cy) = (template.cx, template.cy);
-    let cb = diamond_bytes(cx, cy);
     let count = template.blocks_x * template.blocks_y;
     let base = FILE_HEADER + 4 * count;
     let mut offsets = vec![0i32; count];
@@ -479,68 +685,7 @@ fn rebuild(template: &Template) -> Vec<u8> {
             continue;
         };
         offsets[slot] = (base + body.len()) as i32;
-        let has_z = tile.z.is_some();
-        let has_extra = tile.extra.is_some();
-        let has_extra_z = has_extra && has_z && tile.extra_z.is_some();
-        let (ew, eh) = if has_extra {
-            (tile.extra_w, tile.extra_h)
-        } else {
-            (0, 0)
-        };
-        let mut cursor = TILE_HEADER + cb;
-        let (mut z_off, mut extra_off, mut extra_z_off) = (0usize, 0usize, 0usize);
-        if has_z {
-            z_off = cursor;
-            cursor += cb;
-        }
-        if has_extra {
-            extra_off = cursor;
-            cursor += ew * eh;
-            if has_extra_z {
-                extra_z_off = cursor;
-            }
-        }
-        // Keep what the original tool left in the fields this tile does not
-        // use; change only the managed bits of the flag word.
-        let mut head = tile.raw;
-        let managed = FLAG_EXTRA | FLAG_Z;
-        let mut flags = (tile.flags & !managed) | if has_extra { FLAG_EXTRA } else { 0 };
-        if has_z {
-            flags |= FLAG_Z;
-        }
-        head[0..4].copy_from_slice(&tile.x.to_le_bytes());
-        head[4..8].copy_from_slice(&tile.y.to_le_bytes());
-        head[36..40].copy_from_slice(&flags.to_le_bytes());
-        tile.fields.write(&mut head);
-        // Only fields the flags point at are written: a stale value in a field
-        // the game never reads is the original file's, not ours.
-        let new = tile.offset == 0;
-        if has_z || new {
-            head[12..16].copy_from_slice(&(z_off as i32).to_le_bytes());
-        }
-        if has_extra || new {
-            head[8..12].copy_from_slice(&(extra_off as i32).to_le_bytes());
-            for (k, v) in [tile.extra_x, tile.extra_y, ew as i32, eh as i32]
-                .into_iter()
-                .enumerate()
-            {
-                head[20 + 4 * k..24 + 4 * k].copy_from_slice(&v.to_le_bytes());
-            }
-            if (has_extra && has_z) || new {
-                head[16..20].copy_from_slice(&(extra_z_off as i32).to_le_bytes());
-            }
-        }
-        body.extend_from_slice(&head);
-        body.extend_from_slice(&encode_diamond(&tile.image, cx, cy));
-        if let Some(z) = &tile.z {
-            body.extend_from_slice(&encode_diamond(z, cx, cy));
-        }
-        if let Some(extra) = &tile.extra {
-            body.extend_from_slice(extra);
-            if has_extra_z {
-                body.extend_from_slice(tile.extra_z.as_deref().unwrap_or_default());
-            }
-        }
+        body.extend_from_slice(&record(tile, cx, cy));
     }
     let mut out = Vec::with_capacity(base + body.len());
     for v in [template.blocks_x, template.blocks_y, cx, cy] {

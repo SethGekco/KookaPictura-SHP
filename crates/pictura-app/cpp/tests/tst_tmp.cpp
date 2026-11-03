@@ -21,6 +21,7 @@
 #include "pictura_app/src/cxxqt_object/shp.cxxqt.h"
 
 #include <QtCore/QTemporaryDir>
+#include <functional>
 #include <QtCore/QTimer>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QCheckBox>
@@ -164,6 +165,9 @@ private slots:
     void newTmpFromImageIsInTheFileMenu();
     void saveAsShpOfATemplateConvertsItPerTile();
     void aTemplateBecomesOneShpFrame();
+    void theTilesPanelMovesAndRemovesTilesWithUndo();
+    void theTilesPanelAddsTilesAndExtraBlocks();
+    void theCellDialogRefusesTakenCells();
 
 private:
     pictura::PictureView* open(const QString& path);
@@ -794,6 +798,169 @@ void TmpTest::aTemplateBecomesOneShpFrame()
     QCOMPARE(pictura::shp_check(*made).off_palette, 0);
     // Not a template: refused.
     QVERIFY(!support_->tmpToShp(made, true, true, QStringLiteral("x")));
+}
+
+namespace {
+
+// Run `check` on the first visible dialog of type T, then accept it.
+template <typename T>
+class AcceptWhenShown {
+public:
+    explicit AcceptWhenShown(std::function<void(T*)> check)
+    {
+        QObject::connect(&poll_, &QTimer::timeout, [this, check] {
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                auto* dialog = qobject_cast<T*>(widget);
+                if (!dialog || !dialog->isVisible() || seen_) {
+                    continue;
+                }
+                seen_ = true;
+                check(dialog);
+                dialog->accept();
+            }
+        });
+        poll_.start(20);
+    }
+    bool seen() const { return seen_; }
+
+private:
+    QTimer poll_;
+    bool seen_ = false;
+};
+
+QByteArray readAll(const QString& path)
+{
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
+
+} // namespace
+
+void TmpTest::theTilesPanelMovesAndRemovesTilesWithUndo()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    pictura::TmpTilesPanel* tiles = support_->tiles();
+    QTRY_COMPARE(tiles->tileCount(), 2);
+    tiles->focusSlot(1);
+    QVERIFY(!tiles->addButton()->isEnabled()); // the 2 x 1 grid is full
+    QVERIFY(!tiles->moveButton()->isEnabled());
+    QVERIFY(tiles->removeButton()->isEnabled());
+    QVERIFY(tiles->addExtraButton()->isEnabled());
+    QVERIFY(!tiles->removeExtraButton()->isEnabled());
+    const int history = view->history_index();
+    tiles->removeButton()->click();
+    QCOMPARE(tiles->tileCount(), 1);
+    QCOMPARE(view->history_index(), history + 1);
+    // Tile 0 to the freed cell (offered first): half a tile right and down.
+    tiles->focusSlot(0);
+    QVERIFY(tiles->moveButton()->isEnabled());
+    AcceptWhenShown<pictura::TmpCellDialog> cell([](pictura::TmpCellDialog* d) {
+        QCOMPARE(d->column(), 1);
+        QCOMPARE(d->row(), 0);
+        QVERIFY(d->okButton()->isEnabled());
+    });
+    tiles->moveButton()->click();
+    QVERIFY(cell.seen());
+    QCOMPARE(view->history_index(), history + 2);
+    const ::rust::Vec<pictura::TmpTile> rows = pictura::tmp_tiles(*view);
+    QCOMPARE(int(rows.size()), 1);
+    QCOMPARE(rows[0].slot, 1);
+    QCOMPARE(tiles->currentSlot(), 1);
+    // The tile at (30, 15), its extra block at (50, 9): a 60 x 36 canvas.
+    QCOMPARE(view->document_width(), 60);
+    QCOMPARE(view->document_height(), 36);
+    const QString moved = dir_.filePath(QStringLiteral("moved.tem"));
+    QVERIFY2(window_->saveActiveAs(moved), qPrintable(support_->lastGateMessage()));
+    QVERIFY(support_->lastGateMessage().isEmpty()); // written in place
+    const QByteArray original = terrain();
+    const QByteArray saved = readAll(moved);
+    QCOMPARE(saved.size(), original.size());
+    // Only the two slots and the moved header's tile and extra x and y.
+    for (int i : differing(original, saved)) {
+        QVERIFY2((i >= 16 && i < 32) || (i >= 24 + 20 && i < 24 + 28),
+                 qPrintable(QString::number(i)));
+    }
+    QVERIFY(view->undo());
+    QVERIFY(view->undo());
+    QTRY_COMPARE(tiles->tileCount(), 2);
+    QCOMPARE(view->document_width(), 90);
+    const QString again = dir_.filePath(QStringLiteral("unmoved.tem"));
+    QVERIFY(window_->saveActiveAs(again));
+    QCOMPARE(readAll(again), original);
+    QVERIFY(view->redo());
+    QTRY_COMPARE(tiles->tileCount(), 1);
+    // The last tile cannot go.
+    QVERIFY(!tiles->removeTile(0));
+    QCOMPARE(tiles->tileCount(), 1);
+}
+
+void TmpTest::theTilesPanelAddsTilesAndExtraBlocks()
+{
+    pictura::ShpSupport::setGateInteractive(0);
+    pictura::PictureView* view = open(tmp_);
+    QVERIFY(view);
+    pictura::TmpTilesPanel* tiles = support_->tiles();
+    QTRY_COMPARE(tiles->tileCount(), 2);
+    tiles->focusSlot(1);
+    AcceptWhenShown<pictura::TmpExtraDialog> extra([](pictura::TmpExtraDialog* d) {
+        QCOMPARE(d->values(), (QList<int>{0, -kCy, kCx, kCy}));
+        d->widthBox()->setValue(10);
+        d->heightBox()->setValue(5);
+    });
+    tiles->addExtraButton()->click();
+    QVERIFY(extra.seen());
+    QVERIFY(tiles->removeExtra(0));
+    QVERIFY(!tiles->removeExtra(0)); // it has none now
+    ::rust::Vec<pictura::TmpTile> rows = pictura::tmp_tiles(*view);
+    QVERIFY(!rows[0].has_extra);
+    QVERIFY(rows[1].has_extra && !rows[1].has_extra_z);
+    QCOMPARE(rows[1].extra_w, 10);
+    QCOMPARE(rows[1].extra_h, 5);
+    const QString out = dir_.filePath(QStringLiteral("extras.tem"));
+    QVERIFY2(window_->saveActiveAs(out), qPrintable(support_->lastGateMessage()));
+    QVERIFY2(support_->lastGateMessage().contains(QStringLiteral("added at the end")),
+             qPrintable(support_->lastGateMessage()));
+    QCOMPARE(readAll(out).size(), terrain().size() + 50);
+    QVERIFY(window_->openDocumentAtPath(out));
+    pictura::PictureView* reopened = window_->activeView();
+    QVERIFY(reopened && reopened != view);
+    rows = pictura::tmp_tiles(*reopened);
+    QCOMPARE(int(rows.size()), 2);
+    QVERIFY(!rows[0].has_extra && rows[0].has_z);
+    QVERIFY(rows[1].has_extra && !rows[1].has_extra_z && !rows[1].has_z);
+    QCOMPARE(rows[1].extra_x - rows[1].x, 0);
+    QCOMPARE(rows[1].y - rows[1].extra_y, kCy);
+    QVERIFY(view->undo());
+    QVERIFY(view->undo());
+    window_->setActiveDocumentIndex(0);
+    const QString again = dir_.filePath(QStringLiteral("noextras.tem"));
+    QVERIFY(window_->saveActiveAs(again));
+    QCOMPARE(readAll(again), terrain());
+    // A blank tile in a free cell is appended as a whole record.
+    QVERIFY(tiles->removeTile(1));
+    QVERIFY(tiles->addTile(1, 0));
+    rows = pictura::tmp_tiles(*view);
+    QCOMPARE(rows[1].x - rows[0].x, kCx / 2);
+    QCOMPARE(rows[1].y - rows[0].y, kCy / 2);
+    QVERIFY(!rows[1].has_z && !rows[1].has_extra);
+    const QString added = dir_.filePath(QStringLiteral("added.tem"));
+    QVERIFY(window_->saveActiveAs(added));
+    QCOMPARE(readAll(added).size(), terrain().size() + 52 + kDiamond);
+}
+
+void TmpTest::theCellDialogRefusesTakenCells()
+{
+    pictura::TmpCellDialog dialog(QStringLiteral("Move Tile"), QString(), 3, 2,
+                                  {true, false, true, true, true, true}, nullptr);
+    QCOMPARE(dialog.column(), 1);
+    QCOMPARE(dialog.row(), 0);
+    QVERIFY(dialog.okButton()->isEnabled());
+    dialog.columnBox()->setValue(0);
+    QVERIFY(!dialog.okButton()->isEnabled());
+    QCOMPARE(dialog.columnBox()->maximum(), 2);
+    QCOMPARE(dialog.rowBox()->maximum(), 1);
 }
 
 QTEST_MAIN(TmpTest)

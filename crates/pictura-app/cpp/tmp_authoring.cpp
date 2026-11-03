@@ -351,6 +351,101 @@ QString TmpToShpDialog::noteForTest() const
     return note_->text();
 }
 
+TmpCellDialog::TmpCellDialog(const QString& title, const QString& text, int blocksX,
+                             int blocksY, const QList<bool>& taken, QWidget* parent)
+    : QDialog(parent)
+    , blocksX_(std::max(1, blocksX))
+    , taken_(taken)
+{
+    setObjectName(QStringLiteral("tmpCellDialog"));
+    setWindowTitle(title);
+    auto* intro = new QLabel(text, this);
+    intro->setWordWrap(true);
+    col_ = new QSpinBox(this);
+    col_->setObjectName(QStringLiteral("tmpCellColumn"));
+    col_->setRange(0, std::max(0, blocksX - 1));
+    row_ = new QSpinBox(this);
+    row_->setObjectName(QStringLiteral("tmpCellRow"));
+    row_->setRange(0, std::max(0, blocksY - 1));
+    const qsizetype free = taken_.indexOf(false);
+    if (free >= 0) {
+        col_->setValue(int(free % blocksX_));
+        row_->setValue(int(free / blocksX_));
+    }
+    state_ = new QLabel(this);
+    state_->setObjectName(QStringLiteral("tmpCellState"));
+    auto* form = new QFormLayout;
+    form->addRow(tr("Column:"), col_);
+    form->addRow(tr("Row:"), row_);
+    auto* buttons = okCancel(this);
+    ok_ = buttons->button(QDialogButtonBox::Ok);
+    auto* layout = new QVBoxLayout(this);
+    layout->addWidget(intro);
+    layout->addLayout(form);
+    layout->addWidget(state_);
+    layout->addWidget(buttons);
+    connect(col_, &QSpinBox::valueChanged, this, [this] { update(); });
+    connect(row_, &QSpinBox::valueChanged, this, [this] { update(); });
+    update();
+}
+
+int TmpCellDialog::column() const
+{
+    return col_->value();
+}
+
+int TmpCellDialog::row() const
+{
+    return row_->value();
+}
+
+void TmpCellDialog::update()
+{
+    const qsizetype slot = qsizetype(row_->value()) * blocksX_ + col_->value();
+    const bool taken = taken_.value(slot, false);
+    state_->setText(taken ? tr("Tile %1 is in that cell.").arg(slot)
+                          : tr("Cell %1 is free.").arg(slot));
+    ok_->setEnabled(!taken);
+}
+
+TmpExtraDialog::TmpExtraDialog(int slot, int tileWidth, int tileHeight, QWidget* parent)
+    : QDialog(parent)
+{
+    setObjectName(QStringLiteral("tmpExtraDialog"));
+    setWindowTitle(tr("Add Extra Block"));
+    auto* intro = new QLabel(tr("A new extra block for tile %1: art that overhangs the tile "
+                                "(its position is saved in the tile header). It starts "
+                                "transparent on an Extras layer, with no z-data.")
+                                 .arg(slot),
+                             this);
+    intro->setWordWrap(true);
+    const auto box = [this](const char* name, int low, int high, int value) {
+        auto* b = new QSpinBox(this);
+        b->setObjectName(QLatin1String(name));
+        b->setRange(low, high);
+        b->setValue(value);
+        return b;
+    };
+    x_ = box("tmpExtraX", -4096, 4096, 0);
+    y_ = box("tmpExtraY", -4096, 4096, -tileHeight);
+    w_ = box("tmpExtraWidth", 1, 4096, tileWidth);
+    h_ = box("tmpExtraHeight", 1, 4096, tileHeight);
+    auto* form = new QFormLayout;
+    form->addRow(tr("X from the tile:"), x_);
+    form->addRow(tr("Y from the tile:"), y_);
+    form->addRow(tr("Width:"), w_);
+    form->addRow(tr("Height:"), h_);
+    auto* layout = new QVBoxLayout(this);
+    layout->addWidget(intro);
+    layout->addLayout(form);
+    layout->addWidget(okCancel(this));
+}
+
+QList<int> TmpExtraDialog::values() const
+{
+    return {x_->value(), y_->value(), w_->value(), h_->value()};
+}
+
 } // namespace pictura
 
 #include "moc_tmp_authoring.cpp"

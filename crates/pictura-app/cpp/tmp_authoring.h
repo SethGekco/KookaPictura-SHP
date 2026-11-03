@@ -2,7 +2,7 @@
 // KookaPictura-SHP fork: the dialogs that turn one Westwood format into
 // another -- an image into a new TMP terrain template (File > New TMP from
 // Image, Save As TMP of an image), and a template into an SHP (Save As SHP
-// of a template).
+// of a template) -- and the Tiles panel's cell and extra-block dialogs.
 #pragma once
 
 #include <QtWidgets/QDialog>
@@ -115,6 +115,56 @@ private:
     QComboBox* frames_ = nullptr;
     QCheckBox* extras_ = nullptr;
     QLabel* note_ = nullptr;
+};
+
+// The Tiles panel's Move and Add: a cell of the template grid. Cells that
+// hold a tile are refused (OK is disabled); the first free one is offered.
+class TmpCellDialog : public QDialog {
+    Q_OBJECT
+
+public:
+    // `taken`: one flag per slot, row by row, true where a tile is.
+    TmpCellDialog(const QString& title, const QString& text, int blocksX, int blocksY,
+                  const QList<bool>& taken, QWidget* parent);
+    int column() const;
+    int row() const;
+
+    QSpinBox* columnBox() const { return col_; }
+    QSpinBox* rowBox() const { return row_; }
+    QPushButton* okButton() const { return ok_; }
+
+private:
+    void update();
+
+    int blocksX_ = 1;
+    QList<bool> taken_;
+    QSpinBox* col_ = nullptr;
+    QSpinBox* row_ = nullptr;
+    QLabel* state_ = nullptr;
+    QPushButton* ok_ = nullptr;
+};
+
+// The Tiles panel's Add Extra Block: its offset from the tile and its size
+// (by default a tile-sized block right above the tile). The block starts
+// transparent and without z-data.
+class TmpExtraDialog : public QDialog {
+    Q_OBJECT
+
+public:
+    TmpExtraDialog(int slot, int tileWidth, int tileHeight, QWidget* parent);
+    // x and y offset from the tile, width, height.
+    QList<int> values() const;
+
+    QSpinBox* xBox() const { return x_; }
+    QSpinBox* yBox() const { return y_; }
+    QSpinBox* widthBox() const { return w_; }
+    QSpinBox* heightBox() const { return h_; }
+
+private:
+    QSpinBox* x_ = nullptr;
+    QSpinBox* y_ = nullptr;
+    QSpinBox* w_ = nullptr;
+    QSpinBox* h_ = nullptr;
 };
 
 } // namespace pictura

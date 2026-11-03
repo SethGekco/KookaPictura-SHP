@@ -1161,3 +1161,54 @@ TMP authoring (recorded as each piece landed; the OpenSpec change is
   refused with the reason, like the other conversions. The new SHP has no
   source file, so every frame is written fresh. The size check is
   `Limits::admit` on the new sheet.
+- **Reshaping in the Tiles panel** (Move, Add, Remove, Add Extra, Remove
+  Extra), each one undoable step through `tmp_edit_tiles`:
+  - The shapes live in the `KookaTMP` block, version 2: per tile its source
+    slot in the original file (or none: a new tile), position, and extra
+    block (position, size, and whether it is the source's own block or a
+    new one). `TmpResource::template()` reshapes the original's tiles and
+    then applies the fields, so undo, redo and a PSD round trip carry the
+    reshaping like everything else. A block without shapes stays version 1,
+    so nothing changes for a template that was never reshaped.
+  - A move goes to a free cell only, by the measured grid step (a column is
+    `(+cx/2, +cy/2)`, a row `(-cx/2, +cy/2)`), and the extra block moves
+    with its tile. A new tile is placed from the first tile by the same
+    step and takes its height, land and ramp (so the height offset stays
+    consistent), radar colors zero, blank pixels, no z-data. The last tile
+    cannot be removed (a TMP needs one). An added extra block is
+    transparent and has no z-data (default: a tile-sized block right above
+    the tile); it gains extra z-data only when depth is painted on Z
+    Extras.
+  - The layers are laid out again for the new placement: every kept tile's
+    region on every plane is copied to its new place (its group may
+    change), new tiles and blocks start transparent, and pixels outside
+    every region move with the canvas origin onto the layer of the same
+    name. Outside pixels that fall off the new canvas or under a tile are
+    dropped and counted in the message (undo brings them back). The canvas
+    is resized top-left (the selection drops) and the size check
+    (`Limits::admit` with the view's allowance) runs when the layers grow.
+  - Save patches the original file instead of laying it out afresh: moved
+    tiles keep their records (header x, y, extra x, y and the offset-table
+    slots rewritten), a removed tile's slot becomes 0 (its record stays as
+    unreferenced bytes, as the game ignores it), new or resized blocks and
+    new tiles' whole records are appended at the end with record-relative
+    offsets, a removed extra clears only its flag bit, and an extra without
+    z-data on a tile with z gets a zero extra-z offset. Extra z-data on a
+    tile without z brings a "no data" z diamond (the flag covers both; the
+    old writer silently dropped it). After patching, the bytes are parsed
+    back and compared tile by tile; only when they differ, or the grid
+    differs, is the file laid out afresh. The panel cannot change the grid,
+    so the fresh layout is not reachable from it today; the save gate's
+    status says "added at the end of the file" for an appended save and
+    "laid out afresh" for a fresh one (`tmp_save_layout`). A tile that
+    gains z-data from painting now also appends instead of re-laying the
+    file out (a change from phase 4).
+  - Checked (2026-11-02): 2,745 real templates still save byte-identical
+    and one-byte edits stay one byte (codec corpus gate). A copy of a real
+    template (`msclif09.tem`, 2 x 2, three tiles) with its last tile moved
+    to the empty cell and an extra block added to tile 0, saved and
+    reopened: Ochre's reader sees exactly the moved tile (shifted by
+    `(30, 15)`, image and z unchanged) and the new blank 60 x 30 extra
+    without z-data, nothing else; 23,315 of the 23,348 original bytes are
+    unchanged in place and 1,800 bytes are appended
+    (`tmpedit-e2e.py edit`: EDIT OK).

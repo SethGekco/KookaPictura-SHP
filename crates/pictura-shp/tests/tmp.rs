@@ -4,9 +4,9 @@ mod common;
 
 use common::Rng;
 use pictura_shp::tmp::{
-    build, decode_diamond, diamond_bytes, diamond_rows, encode_diamond, in_diamond, land_label,
-    parse, ramp_label, sniff, Error, Template, Tile, TileFields, FLAG_EXTRA, FLAG_RANDOM, FLAG_Z,
-    TILE_HEADER, Z_NONE,
+    build, build_with_layout, decode_diamond, diamond_bytes, diamond_rows, encode_diamond,
+    in_diamond, land_label, parse, ramp_label, sniff, Error, Layout, Template, Tile, TileFields,
+    FLAG_EXTRA, FLAG_RANDOM, FLAG_Z, TILE_HEADER, Z_NONE,
 };
 
 /// A 2 x 2 template of `cx` x `cy` tiles with slot 1 empty; tile 0 has
@@ -263,22 +263,43 @@ fn edited_z_and_extra_are_written_in_place() {
     assert_eq!(content(&back), content(&t));
 }
 
+/// The positions where `a` and `b` differ (over the longer of the two).
+fn diff(a: &[u8], b: &[u8]) -> Vec<usize> {
+    (0..a.len().max(b.len()))
+        .filter(|&i| a.get(i) != b.get(i))
+        .collect()
+}
+
+fn i32_at(b: &[u8], at: usize) -> i32 {
+    i32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+}
+
 #[test]
-fn a_tile_that_gains_z_data_is_laid_out_afresh() {
+fn a_tile_that_gains_z_data_gets_it_appended() {
     let bytes = messy_file();
     let mut t = parse(&bytes).unwrap();
     let tile = t.tiles[2].as_mut().unwrap();
     assert!(tile.z.is_none());
+    let at = tile.offset;
     let mut z = vec![Z_NONE; 60 * 30];
     z[15 * 60 + 30] = 7;
     tile.z = Some(z);
-    let out = build(&t, Some(&bytes)).unwrap();
+    let (out, layout) = build_with_layout(&t, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::Appended);
+    assert_eq!(out.len(), bytes.len() + diamond_bytes(60, 30));
+    // Only the tile's flags and z offset change; the z diamond is appended.
+    let changed = diff(&bytes, &out[..bytes.len()]);
+    assert!(
+        changed
+            .iter()
+            .all(|&i| (at + 12..at + 16).contains(&i) || (at + 36..at + 40).contains(&i)),
+        "{changed:?}"
+    );
     let back = parse(&out).unwrap();
     let tile = back.tiles[2].as_ref().unwrap();
     assert_eq!(tile.flags & FLAG_Z, FLAG_Z);
     assert_eq!(tile.z.as_ref().unwrap()[15 * 60 + 30], 7);
     assert_eq!(content(&back), content(&t));
-    // The raw header's unused fields survive the rebuild.
     assert_eq!(&tile.raw[49..52], &[0xCD; 3]);
     assert_eq!(&tile.raw[20..36], &[0xCD; 16]);
 }
@@ -293,7 +314,188 @@ fn a_damaged_slot_is_kept_in_place_and_refused_by_a_rebuild() {
     assert_eq!(t.unreadable, vec![1]);
     assert_eq!(build(&t, Some(&bytes)).unwrap(), bytes);
     t.tiles[2].as_mut().unwrap().z = Some(vec![Z_NONE; 60 * 30]);
+    let out = build(&t, Some(&bytes)).unwrap();
+    assert_eq!(&out[20..24], &bytes[20..24], "the damaged slot is kept");
+    // A different grid needs a fresh layout, which cannot carry slot 1.
+    t.blocks_y = 3;
+    t.tiles.extend([None, None]);
     assert_eq!(build(&t, Some(&bytes)), Err(Error::Unreadable(1)));
+}
+
+/// `t` with the tile in `from` moved to the empty slot `to` by the grid
+/// step, its extra block with it.
+fn moved(t: &Template, from: usize, to: usize) -> Template {
+    let mut t = t.clone();
+    let (bx, cx, cy) = (t.blocks_x as i32, t.cx as i32, t.cy as i32);
+    let (dc, dr) = (
+        (to as i32 % bx) - (from as i32 % bx),
+        (to as i32 / bx) - (from as i32 / bx),
+    );
+    let (dx, dy) = ((dc - dr) * cx / 2, (dc + dr) * cy / 2);
+    let mut tile = t.tiles[from].take().unwrap();
+    tile.x += dx;
+    tile.y += dy;
+    tile.extra_x += dx;
+    tile.extra_y += dy;
+    t.tiles[to] = Some(tile);
+    t
+}
+
+#[test]
+fn a_moved_tile_rewrites_only_its_header_position_and_slots() {
+    let bytes = messy_file();
+    let t = parse(&bytes).unwrap();
+    let at = t.tiles[3].as_ref().unwrap().offset;
+    let m = moved(&t, 3, 1);
+    let (out, layout) = build_with_layout(&m, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::InPlace);
+    let changed = diff(&bytes, &out);
+    let allowed = |i: usize| {
+        (16 + 4..16 + 8).contains(&i)
+            || (16 + 12..16 + 16).contains(&i)
+            || (at..at + 8).contains(&i)
+            || (at + 20..at + 28).contains(&i)
+    };
+    assert!(changed.iter().all(|&i| allowed(i)), "{changed:?}");
+    let back = parse(&out).unwrap();
+    assert!(back.tiles[3].is_none());
+    let tile = back.tiles[1].as_ref().unwrap();
+    assert_eq!((tile.x, tile.y), (30, 15));
+    assert_eq!((tile.extra_x, tile.extra_y), (35, 6));
+    assert_eq!(content(&back), content(&m));
+}
+
+#[test]
+fn a_removed_tile_empties_only_its_slot() {
+    let bytes = messy_file();
+    let mut t = parse(&bytes).unwrap();
+    t.tiles[0] = None;
+    let (out, layout) = build_with_layout(&t, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::InPlace);
+    let changed = diff(&bytes, &out);
+    assert!(!changed.is_empty() && changed.iter().all(|i| (16..20).contains(i)));
+    assert_eq!(i32_at(&out, 16), 0);
+    assert_eq!(content(&parse(&out).unwrap()), content(&t));
+}
+
+#[test]
+fn a_new_tile_is_appended_as_a_whole_record() {
+    let bytes = messy_file();
+    let mut t = parse(&bytes).unwrap();
+    let mut tile = Tile::new(30, 15, 60, 30);
+    let packed: Vec<u8> = (0..diamond_bytes(60, 30)).map(|i| (i % 7) as u8).collect();
+    tile.image = decode_diamond(&packed, 60, 30, 0);
+    tile.fields.land = 13;
+    t.tiles[1] = Some(tile);
+    let (out, layout) = build_with_layout(&t, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::Appended);
+    assert_eq!(out.len(), bytes.len() + TILE_HEADER + diamond_bytes(60, 30));
+    let changed = diff(&bytes, &out[..bytes.len()]);
+    assert!(!changed.is_empty() && changed.iter().all(|i| (20..24).contains(i)));
+    assert_eq!(i32_at(&out, 20) as usize, bytes.len());
+    let back = parse(&out).unwrap();
+    let new = back.tiles[1].as_ref().unwrap();
+    assert_eq!(
+        (new.flags, new.z.is_none(), new.extra.is_none()),
+        (0, true, true)
+    );
+    assert_eq!(content(&back), content(&t));
+}
+
+#[test]
+fn an_added_extra_is_appended_without_z_data() {
+    let bytes = messy_file();
+    let mut t = parse(&bytes).unwrap();
+    // Tile 0 has z-data, so the extra's z field must be cleared.
+    let tile = t.tiles[0].as_mut().unwrap();
+    assert!(tile.z.is_some());
+    let at = tile.offset;
+    tile.extra_x = 4;
+    tile.extra_y = -30;
+    tile.extra_w = 60;
+    tile.extra_h = 30;
+    tile.extra = Some(vec![0; 60 * 30]);
+    let (out, layout) = build_with_layout(&t, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::Appended);
+    assert_eq!(out.len(), bytes.len() + 60 * 30);
+    let changed = diff(&bytes, &out[..bytes.len()]);
+    assert!(
+        changed
+            .iter()
+            .all(|&i| (at + 8..at + 12).contains(&i) || (at + 16..at + 40).contains(&i)),
+        "{changed:?}"
+    );
+    let back = parse(&out).unwrap();
+    let tile = back.tiles[0].as_ref().unwrap();
+    assert_eq!(tile.flags & (FLAG_EXTRA | FLAG_Z), FLAG_EXTRA | FLAG_Z);
+    assert_eq!(i32_at(&tile.raw, 16), 0, "no extra z offset");
+    assert_eq!(
+        (tile.extra_x, tile.extra_y, tile.extra_w, tile.extra_h),
+        (4, -30, 60, 30)
+    );
+    assert!(tile.extra_z.is_none());
+    assert_eq!(content(&back), content(&t));
+}
+
+#[test]
+fn a_removed_extra_clears_only_its_flag() {
+    let bytes = messy_file();
+    let mut t = parse(&bytes).unwrap();
+    let tile = t.tiles[3].as_mut().unwrap();
+    let at = tile.offset;
+    (tile.extra, tile.extra_z, tile.extra_w, tile.extra_h) = (None, None, 0, 0);
+    let (out, layout) = build_with_layout(&t, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::InPlace);
+    assert_eq!(diff(&bytes, &out), [at + 36]);
+    let back = parse(&out).unwrap();
+    assert!(back.tiles[3].as_ref().unwrap().extra.is_none());
+    assert_eq!(content(&back), content(&t));
+}
+
+#[test]
+fn extra_z_data_alone_brings_a_blank_z_diamond() {
+    let bytes = messy_file();
+    let mut t = parse(&bytes).unwrap();
+    let tile = t.tiles[2].as_mut().unwrap();
+    assert!(tile.z.is_none());
+    (tile.extra_x, tile.extra_y, tile.extra_w, tile.extra_h) = (0, 0, 2, 2);
+    tile.extra = Some(vec![9; 4]);
+    tile.extra_z = Some(vec![3; 4]);
+    for original in [Some(&bytes[..]), None] {
+        let back = parse(&build(&t, original).unwrap()).unwrap();
+        let tile = back.tiles[2].as_ref().unwrap();
+        assert_eq!(tile.extra_z.as_deref(), Some(&[3u8; 4][..]));
+        let z = tile.z.as_ref().expect("a z diamond");
+        assert!(z.iter().all(|&v| v == Z_NONE));
+    }
+}
+
+#[test]
+fn every_edit_together_reads_back_and_a_new_grid_is_fresh() {
+    let bytes = messy_file();
+    let t = parse(&bytes).unwrap();
+    let mut m = moved(&t, 3, 1);
+    m.tiles[0] = None;
+    m.tiles[3] = Some(Tile::new(0, 30, 60, 30));
+    let tile = m.tiles[2].as_mut().unwrap();
+    (tile.extra_x, tile.extra_y, tile.extra_w, tile.extra_h) = (-30, 0, 3, 5);
+    tile.extra = Some(vec![1; 15]);
+    let (out, layout) = build_with_layout(&m, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::Appended);
+    assert_eq!(content(&parse(&out).unwrap()), content(&m));
+    let mut grown = m.clone();
+    grown.blocks_x = 3;
+    grown.tiles = vec![
+        m.tiles[0].clone(),
+        m.tiles[1].clone(),
+        None,
+        m.tiles[2].clone(),
+        m.tiles[3].clone(),
+        None,
+    ];
+    let (out, layout) = build_with_layout(&grown, Some(&bytes)).unwrap();
+    assert_eq!(layout, Layout::Fresh);
+    assert_eq!(content(&parse(&out).unwrap()), content(&grown));
 }
 
 #[test]

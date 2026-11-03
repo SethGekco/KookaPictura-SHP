@@ -153,6 +153,18 @@ bool ShpSupport::tmpGate(PictureView* view, bool dialogs, const QString& path)
             return refuse(lastSaveError());
         }
     }
+    // Say how the file is written when it is not simply over itself.
+    const QString layout = QString(tmp_save_layout(*view));
+    if (layout == QLatin1String("appended")) {
+        gateMessage_ = tr("Saved over the original layout: the new or resized blocks and tiles "
+                          "are added at the end of the file, and every other byte is kept.");
+        message(gateMessage_);
+    } else if (layout == QLatin1String("fresh")) {
+        gateMessage_ = tr("The original file's layout could not be kept, so the template is "
+                          "laid out afresh (every tile's data is kept, but not the bytes "
+                          "between and around the tiles).");
+        message(gateMessage_);
+    }
     return true;
 }
 

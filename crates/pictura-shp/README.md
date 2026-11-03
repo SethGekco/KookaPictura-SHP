@@ -28,10 +28,15 @@ other `pictura-*` crate, no third-party dependency.
 - `tmp` reads and writes TMP isometric terrain templates (the theater
   suffixes `.tem`, `.sno`, `.urb`, `.ubn`, `.des`, `.lun`, which theater
   SHPs share; the content decides): the diamond, its z-data, the extra block
-  and its z-data. The writer patches the original file in place while every
-  block keeps its size, so untouched tiles, uninitialised header bytes, gaps
-  and tails stay byte for byte; a tile that gains a block is laid out afresh
-  as Ochre's `build_tmp` does.
+  and its z-data. The writer patches the original file while the grid
+  stays the same: blocks that keep their size in place, new or resized
+  blocks and new tiles' records appended at the end, a moved tile's header
+  position and slot rewritten, a removed tile's slot emptied; so untouched
+  tiles, uninitialised header bytes, gaps and tails stay byte for byte.
+  Only a new grid is laid out afresh, as Ochre's `build_tmp` does
+  (`build_with_layout` says which). `terrain` keeps a reshaped template's
+  tile shapes (source slot, position, extra block) in version 2 of the
+  `KookaTMP` block.
 - `tmp_image` makes a new template from an RGBA image: the image over the
   template grid (cell `(col, row)` at `((col - row) * cx / 2, (col + row) *
   cy / 2)`, as in every real template measured), the chosen cells as
